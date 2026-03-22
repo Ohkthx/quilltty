@@ -1,0 +1,12 @@
+[package]
+name = "quilltty"
+version = "0.0.1"
+edition = "2024"
+description = "Terminal text renderer that supports ANSI coloring, styles, and cursor actions."
+repository = "https://github.com/Ohkthx/quilltty"
+keywords = ["render", "color", "cli", "input", "terminal"]
+exclude = ["target", "Cargo.lock"]
+readme = "README.md"
+
+[dependencies]
+crossterm = { version = "0.29.0", features = ["windows", "events"], default-features = false }
