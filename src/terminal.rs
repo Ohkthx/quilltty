@@ -1,3 +1,5 @@
+//! File: src/terminal.rs
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::{io, thread, time};
@@ -27,8 +29,8 @@ impl Terminal {
     }
 
     /// Outputs the size of the terminal.
-    pub fn size() -> io::Result<(u16, u16)> {
-        terminal::size()
+    pub fn size() -> io::Result<(usize, usize)> {
+        terminal::size().map(|(w, h)| (w as usize, h as usize))
     }
 }
 
