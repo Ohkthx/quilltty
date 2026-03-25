@@ -1,5 +1,110 @@
 //! File: src/display/glyph.rs
 
+/// Characters used to draw boxes around panes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BoxDraw {
+    Horizontal,         // ─
+    Vertical,           // │
+    TopLeft,            // ┌
+    TopRight,           // ┐
+    BottomLeft,         // └
+    BottomRight,        // ┘
+    Cross,              // ┼
+    RoundedTopLeft,     // ╭
+    RoundedTopRight,    // ╮
+    RoundedBottomLeft,  // ╰
+    RoundedBottomRight, // ╯
+    DoubleHorizontal,   // ═
+    DoubleVertical,     // ║
+    DoubleTopLeft,      // ╔
+    DoubleTopRight,     // ╗
+    DoubleBottomLeft,   // ╚
+    DoubleBottomRight,  // ╝
+    DoubleCross,        // ╬
+}
+
+impl From<BoxDraw> for char {
+    fn from(value: BoxDraw) -> Self {
+        match value {
+            BoxDraw::Horizontal => '─',
+            BoxDraw::Vertical => '│',
+            BoxDraw::TopLeft => '┌',
+            BoxDraw::TopRight => '┐',
+            BoxDraw::BottomLeft => '└',
+            BoxDraw::BottomRight => '┘',
+            BoxDraw::Cross => '┼',
+            BoxDraw::RoundedTopLeft => '╭',
+            BoxDraw::RoundedTopRight => '╮',
+            BoxDraw::RoundedBottomLeft => '╰',
+            BoxDraw::RoundedBottomRight => '╯',
+            BoxDraw::DoubleHorizontal => '═',
+            BoxDraw::DoubleVertical => '║',
+            BoxDraw::DoubleTopLeft => '╔',
+            BoxDraw::DoubleTopRight => '╗',
+            BoxDraw::DoubleBottomLeft => '╚',
+            BoxDraw::DoubleBottomRight => '╝',
+            BoxDraw::DoubleCross => '╬',
+        }
+    }
+}
+
+/// Type of border to be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BorderKind {
+    #[default]
+    Single,
+    Rounded,
+    Double,
+}
+
+impl BorderKind {
+    pub(crate) const fn horizontal(self) -> BoxDraw {
+        match self {
+            BorderKind::Single | BorderKind::Rounded => BoxDraw::Horizontal,
+            BorderKind::Double => BoxDraw::DoubleHorizontal,
+        }
+    }
+
+    pub(crate) const fn vertical(self) -> BoxDraw {
+        match self {
+            BorderKind::Single | BorderKind::Rounded => BoxDraw::Vertical,
+            BorderKind::Double => BoxDraw::DoubleVertical,
+        }
+    }
+
+    pub(crate) const fn top_left(self) -> BoxDraw {
+        match self {
+            BorderKind::Single => BoxDraw::TopLeft,
+            BorderKind::Rounded => BoxDraw::RoundedTopLeft,
+            BorderKind::Double => BoxDraw::DoubleTopLeft,
+        }
+    }
+
+    pub(crate) const fn top_right(self) -> BoxDraw {
+        match self {
+            BorderKind::Single => BoxDraw::TopRight,
+            BorderKind::Rounded => BoxDraw::RoundedTopRight,
+            BorderKind::Double => BoxDraw::DoubleTopRight,
+        }
+    }
+
+    pub(crate) const fn bottom_left(self) -> BoxDraw {
+        match self {
+            BorderKind::Single => BoxDraw::BottomLeft,
+            BorderKind::Rounded => BoxDraw::RoundedBottomLeft,
+            BorderKind::Double => BoxDraw::DoubleBottomLeft,
+        }
+    }
+
+    pub(crate) const fn bottom_right(self) -> BoxDraw {
+        match self {
+            BorderKind::Single => BoxDraw::BottomRight,
+            BorderKind::Rounded => BoxDraw::RoundedBottomRight,
+            BorderKind::Double => BoxDraw::DoubleBottomRight,
+        }
+    }
+}
+
 /// Basic ANSI colors used for foreground and background styling.
 #[repr(u8)]
 #[derive(Default, Debug, PartialEq, Eq, Copy, Clone)]
@@ -223,6 +328,12 @@ impl Default for Rune {
     }
 }
 
+impl From<BoxDraw> for Rune {
+    fn from(value: BoxDraw) -> Self {
+        char::from(value).into()
+    }
+}
+
 /// A single screen cell that can be rendered with a rune and style.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Glyph {
@@ -255,6 +366,15 @@ impl From<char> for Glyph {
     fn from(c: char) -> Self {
         Self {
             rune: c.into(),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<BoxDraw> for Glyph {
+    fn from(value: BoxDraw) -> Self {
+        Self {
+            rune: value.into(),
             ..Default::default()
         }
     }

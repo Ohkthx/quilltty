@@ -1,7 +1,8 @@
 //! File: src/display/canvas.rs
 
 use crate::display::backend::DamagedSpan;
-use crate::{Compositor, Glyph, Pane, PaneBuilder, PaneId, Rect, Renderer};
+use crate::display::glyph::BorderKind;
+use crate::{Color, Compositor, Glyph, Pane, PaneBuilder, PaneId, Rect, Renderer, Style};
 
 /// Manages panes, their ordering, creation, and deletion.
 pub struct Canvas {
@@ -16,7 +17,7 @@ impl Canvas {
     pub const ROOT_ID: PaneId = PaneId(u32::MAX - 1);
 
     /// Creates a new instance with a root pane covering the given dimensions.
-    pub fn new(width: usize, height: usize) -> Self {
+    pub fn new(width: usize, height: usize, border: Option<BorderKind>) -> Self {
         assert!(width > 0 && height > 0, "Canvas size must be > 0");
 
         let rect = Rect {
@@ -30,7 +31,14 @@ impl Canvas {
             root: Pane::new(Self::ROOT_ID)
                 .with_rect(rect)
                 .with_z_layer(0)
-                .with_data(vec![Glyph::default(); width * height]),
+                .with_visibility(true)
+                .with_movability(false)
+                .with_resizability(false)
+                .with_border(border)
+                .with_border_style(Style::default().with_fg(Color::White))
+                .with_title(None)
+                .with_data(vec![Glyph::default(); width * height])
+                .build(),
             panes: Vec::new(),
             damaged: vec![DamagedSpan::default(); height],
             freed_ids: Vec::new(),
@@ -45,6 +53,11 @@ impl Canvas {
             rect,
             z_layer: 1,
             visible: true,
+            movable: true,
+            resizable: true,
+            border: None,
+            border_style: Style::default().with_fg(Color::White),
+            title: None,
         }
     }
 
@@ -81,6 +94,37 @@ impl Canvas {
         self.root.set(x, y, glyph);
     }
 
+    /// Set the `Pane` title to a new value.
+    pub fn set_pane_title(&mut self, pane_id: PaneId, title: Option<String>) -> bool {
+        if pane_id == Self::ROOT_ID {
+            self.root.set_title(title);
+
+            let width = self.root.rect.width;
+            let y = self.root.rect.y;
+
+            if width > 0 {
+                Self::mark_canvas_span_in(&mut self.damaged, width, y, 0, width - 1);
+            }
+
+            return true;
+        }
+
+        let Some((rect, visible, _, _, _)) =
+            self.with_pane_state_change(pane_id, |pane| pane.set_title(title))
+        else {
+            return false;
+        };
+
+        if visible && rect.width > 0 {
+            let y = rect.y;
+            let x0 = rect.x;
+            let x1 = rect.x + rect.width - 1;
+            Self::mark_canvas_span_in(&mut self.damaged, self.root.rect.width, y, x0, x1);
+        }
+
+        true
+    }
+
     /// Moves the `Pane` to the specified XY-coordinate, optionally clamping to the `Canvas`.
     pub fn move_pane(&mut self, pane_id: PaneId, x: usize, y: usize, clamp: bool) -> bool {
         if pane_id == Self::ROOT_ID {
@@ -91,6 +135,10 @@ impl Canvas {
 
         let Some((old_rect, old_visible, new_rect, _, _)) =
             self.with_pane_state_change(pane_id, |pane| {
+                if !pane.movable {
+                    return;
+                }
+
                 let rect = pane.rect.position(x, y);
                 pane.rect = if clamp { rect.clamp_to(bounds) } else { rect };
             })
@@ -98,13 +146,13 @@ impl Canvas {
             return false;
         };
 
-        if old_rect.x == new_rect.x && old_rect.y == new_rect.y {
-            return true;
+        if old_rect == new_rect {
+            return false;
         }
 
         if old_visible {
-            self.mark_rect_dirty(old_rect);
-            self.mark_rect_dirty(new_rect);
+            self.mark_damaged(old_rect);
+            self.mark_damaged(new_rect);
         }
 
         true
@@ -124,7 +172,7 @@ impl Canvas {
             return false;
         }
 
-        self.mark_rect_dirty(old_rect);
+        self.mark_damaged(old_rect);
         true
     }
 
@@ -142,7 +190,7 @@ impl Canvas {
             return false;
         }
 
-        self.mark_rect_dirty(new_rect);
+        self.mark_damaged(new_rect);
         true
     }
 
@@ -164,17 +212,17 @@ impl Canvas {
         }
 
         if old_visible {
-            self.mark_rect_dirty(old_rect);
+            self.mark_damaged(old_rect);
         }
 
         if new_visible {
-            self.mark_rect_dirty(new_rect);
+            self.mark_damaged(new_rect);
         }
 
         true
     }
 
-    /// Collects damage, composes dirty regions, renders the differences, and writes the output.
+    /// Collects damage, composes damaged regions, renders the differences, and writes the output.
     pub fn render<W: std::io::Write>(
         &mut self,
         compositor: &mut Compositor,
@@ -183,7 +231,7 @@ impl Canvas {
     ) -> std::io::Result<()> {
         self.collect_damage();
 
-        if self.damaged.iter().any(|span| span.dirty) {
+        if self.damaged.iter().any(|span| span.damaged) {
             compositor.flatten(&self.root, &self.panes, &self.damaged);
             renderer.render(compositor, &self.damaged, out)?;
         }
@@ -228,7 +276,7 @@ impl Canvas {
     }
 
     /// Marks the visible portion of `rect` as damaged in canvas space.
-    fn mark_rect_dirty(&mut self, rect: Rect) {
+    fn mark_damaged(&mut self, rect: Rect) {
         let Rect { width, height, .. } = self.root.rect;
         if self.damaged.is_empty() || rect.width == 0 || rect.height == 0 {
             return;
@@ -260,13 +308,13 @@ impl Canvas {
     /// Marks an inclusive horizontal span on a single canvas row as damaged.
     #[inline]
     fn mark_canvas_span_in(
-        dirty: &mut [DamagedSpan],
+        damaged: &mut [DamagedSpan],
         canvas_width: usize,
         y: usize,
         x0: usize,
         x1: usize,
     ) {
-        if dirty.is_empty() || y >= dirty.len() || x0 >= canvas_width {
+        if damaged.is_empty() || y >= damaged.len() || x0 >= canvas_width {
             return;
         }
 
@@ -275,19 +323,19 @@ impl Canvas {
             return;
         }
 
-        dirty[y].mark_range(x0, x1);
+        damaged[y].mark_range(x0, x1);
     }
 
     /// Projects pane-local damaged spans into canvas-space damaged spans.
     fn project_pane_damage_to_canvas(
-        dirty: &mut [DamagedSpan],
+        damaged: &mut [DamagedSpan],
         canvas_width: usize,
         canvas_height: usize,
         pane: &Pane,
     ) {
         for local_y in 0..pane.height() {
             let span = pane.damaged[local_y];
-            if !span.dirty {
+            if !span.damaged {
                 continue;
             }
 
@@ -299,7 +347,7 @@ impl Canvas {
             let x0 = pane.rect.x.saturating_add(span.start);
             let x1 = pane.rect.x.saturating_add(span.end);
 
-            Self::mark_canvas_span_in(dirty, canvas_width, canvas_y, x0, x1);
+            Self::mark_canvas_span_in(damaged, canvas_width, canvas_y, x0, x1);
         }
     }
 

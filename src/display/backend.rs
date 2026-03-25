@@ -15,45 +15,45 @@ pub(crate) fn to_index(x: usize, y: usize, width: usize) -> usize {
 /// A span that has been marked as changed.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct DamagedSpan {
-    pub(crate) dirty: bool,  // Marks if the span should be checked.
-    pub(crate) start: usize, // Starting index of change.
-    pub(crate) end: usize,   // Ending index of change.
+    pub(crate) damaged: bool, // Marks if the span should be checked.
+    pub(crate) start: usize,  // Starting index of change.
+    pub(crate) end: usize,    // Ending index of change.
 }
 
 impl DamagedSpan {
-    /// Marks a single index as dirty.
+    /// Marks a single index as damaged.
     pub(crate) fn mark(&mut self, x: usize) {
         self.mark_range(x, x);
     }
 
-    /// Marks an inclusive range as dirty.
+    /// Marks an inclusive range as damaged.
     pub(crate) fn mark_range(&mut self, start: usize, end: usize) {
         if start > end {
             return;
         }
 
-        if !self.dirty {
+        if !self.damaged {
             self.start = start;
             self.end = end;
-            self.dirty = true;
+            self.damaged = true;
         } else {
             self.start = self.start.min(start);
             self.end = self.end.max(end);
         }
     }
 
-    /// Clears the span, resetting it to not be dirty.
+    /// Clears the span, resetting it to not be damaged.
     pub(crate) fn clear(&mut self) {
         self.start = usize::MAX;
         self.end = 0;
-        self.dirty = false;
+        self.damaged = false;
     }
 }
 
 impl Default for DamagedSpan {
     fn default() -> Self {
         Self {
-            dirty: false,
+            damaged: false,
             start: usize::MAX,
             end: 0,
         }
@@ -101,12 +101,12 @@ impl Compositor {
         self.back.height
     }
 
-    /// Applies the `Pane` data into the `back` buffer where `spans` are marked as dirty.
+    /// Applies the `Pane` data into the `back` buffer where `spans` are marked as damaged.
     pub(crate) fn flatten(&mut self, root: &Pane, panes: &[Pane], spans: &[DamagedSpan]) {
         let (width, height) = (self.back.width, self.back.height);
 
         for (y, span) in spans.iter().copied().enumerate().take(height) {
-            if !span.dirty {
+            if !span.damaged {
                 continue;
             }
 
@@ -217,12 +217,7 @@ impl Renderer {
         out.write_all(&self.buf.0)
     }
 
-    /// Invalidates the cached front buffer so the next render rewrites everything.
-    pub(crate) fn invalidate(&mut self) {
-        self.front.data.fill(Glyph::default());
-    }
-
-    /// Compares only dirty spans between `front` and `back`, emits the minimal
+    /// Compares only damaged spans between `front` and `back`, emits the minimal
     /// cursor/style/text updates, and updates `front` to match `back`.
     fn diff_damaged(front: &mut Frame, back: &Frame, spans: &[DamagedSpan], out: &mut AnsiBuffer) {
         let mut current_style = Style::default();
@@ -236,7 +231,7 @@ impl Renderer {
         debug_assert_eq!(height, back.height);
 
         for (y, span) in spans.iter().copied().enumerate().take(height) {
-            if !span.dirty {
+            if !span.damaged {
                 continue;
             }
 
