@@ -6,10 +6,11 @@ use crate::{Color, Compositor, Glyph, Pane, PaneBuilder, PaneId, Rect, Renderer,
 
 /// Manages panes, their ordering, creation, and deletion.
 pub struct Canvas {
-    pub(crate) root: Pane,                // Main pane.
-    pub(crate) panes: Vec<Pane>,          // Child panes to the root.
-    pub(crate) damaged: Vec<DamagedSpan>, // Damaged spans for each canvas row.
-    pub(crate) freed_ids: Vec<PaneId>,    // Reusable PaneIds.
+    pub(crate) root: Pane,                     // Main pane.
+    pub(crate) panes: Vec<Pane>,               // Child panes to the root.
+    pub(crate) damaged: Vec<DamagedSpan>,      // Damaged spans for each canvas row.
+    pub(crate) freed_ids: Vec<PaneId>,         // Reusable PaneIds.
+    pub(crate) cursor: Option<(usize, usize)>, // Cursor position on the Canvas.
 }
 
 impl Canvas {
@@ -42,6 +43,7 @@ impl Canvas {
             panes: Vec::new(),
             damaged: vec![DamagedSpan::default(); height],
             freed_ids: Vec::new(),
+            cursor: None,
         }
     }
 
@@ -87,6 +89,11 @@ impl Canvas {
         }
 
         self.panes.iter_mut().find(|p| p.id == pane_id)
+    }
+
+    /// Sets the cursor to specific coordinates on the `Canvas`.
+    pub fn set_cursor(&mut self, cursor: Option<(usize, usize)>) {
+        self.cursor = cursor;
     }
 
     /// Writes a `Glyph` to the root pane at `(x, y)`.
@@ -230,12 +237,13 @@ impl Canvas {
         out: &mut W,
     ) -> std::io::Result<()> {
         self.collect_damage();
+        let has_damage = self.damaged.iter().any(|span| span.damaged);
 
-        if self.damaged.iter().any(|span| span.damaged) {
+        if has_damage {
             compositor.flatten(&self.root, &self.panes, &self.damaged);
-            renderer.render(compositor, &self.damaged, out)?;
         }
 
+        renderer.render(compositor, &self.damaged, self.cursor, out)?;
         self.root.clear_damaged();
         for pane in &mut self.panes {
             pane.clear_damaged();

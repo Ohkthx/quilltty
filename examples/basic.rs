@@ -4,10 +4,49 @@ use std::{
     time::Duration,
 };
 
-use crossterm::event::{Event, KeyCode};
+use crossterm::event::{Event, KeyCode, KeyEvent, MouseEventKind};
 use quilltty::{
-    BorderKind, Canvas, Color, Compositor, Glyph, Input, Rect, Renderer, Style, Terminal,
+    BorderKind, Canvas, Color, Compositor, Glyph, Input, PaneId, Rect, Renderer, Style, Terminal,
 };
+
+fn key_event(key: &KeyEvent, canvas: &mut Canvas, pane_id: PaneId, toggle_id: PaneId) -> bool {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => return true,
+        KeyCode::Char('t') | KeyCode::Char('T') => {
+            canvas.set_pane_title(Canvas::ROOT_ID, Some("NEW TITLE".into()));
+        }
+        KeyCode::Char('s') | KeyCode::Char('S') => {
+            canvas.toggle_pane_visibility(toggle_id);
+        }
+        KeyCode::Left => {
+            if let Some(mut rect) = canvas.pane(pane_id).map(|p| p.rect()) {
+                rect.x = rect.x.saturating_sub(1);
+                canvas.move_pane(pane_id, rect.x, rect.y, true);
+            }
+        }
+        KeyCode::Right => {
+            if let Some(mut rect) = canvas.pane(pane_id).map(|p| p.rect()) {
+                rect.x = rect.x.saturating_add(1);
+                canvas.move_pane(pane_id, rect.x, rect.y, true);
+            }
+        }
+        KeyCode::Up => {
+            if let Some(mut rect) = canvas.pane(pane_id).map(|p| p.rect()) {
+                rect.y = rect.y.saturating_sub(1);
+                canvas.move_pane(pane_id, rect.x, rect.y, true);
+            }
+        }
+        KeyCode::Down => {
+            if let Some(mut rect) = canvas.pane(pane_id).map(|p| p.rect()) {
+                rect.y = rect.y.saturating_add(1);
+                canvas.move_pane(pane_id, rect.x, rect.y, true);
+            }
+        }
+        _ => {}
+    }
+
+    false
+}
 
 fn main() -> io::Result<()> {
     let _terminal = Terminal::new(true)?;
@@ -76,41 +115,17 @@ fn main() -> io::Result<()> {
 
     'main: loop {
         for event in input.drain() {
-            if let Event::Key(key) = event {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break 'main,
-                    KeyCode::Char('t') | KeyCode::Char('T') => {
-                        canvas.set_pane_title(Canvas::ROOT_ID, Some("NEW TITLE".into()));
-                    }
-                    KeyCode::Char('s') | KeyCode::Char('S') => {
-                        canvas.toggle_pane_visibility(toggle_id);
-                    }
-                    KeyCode::Left => {
-                        if let Some(mut rect) = canvas.pane(pane_id).map(|p| p.rect()) {
-                            rect.x = rect.x.saturating_sub(1);
-                            canvas.move_pane(pane_id, rect.x, rect.y, true);
-                        }
-                    }
-                    KeyCode::Right => {
-                        if let Some(mut rect) = canvas.pane(pane_id).map(|p| p.rect()) {
-                            rect.x = rect.x.saturating_add(1);
-                            canvas.move_pane(pane_id, rect.x, rect.y, true);
-                        }
-                    }
-                    KeyCode::Up => {
-                        if let Some(mut rect) = canvas.pane(pane_id).map(|p| p.rect()) {
-                            rect.y = rect.y.saturating_sub(1);
-                            canvas.move_pane(pane_id, rect.x, rect.y, true);
-                        }
-                    }
-                    KeyCode::Down => {
-                        if let Some(mut rect) = canvas.pane(pane_id).map(|p| p.rect()) {
-                            rect.y = rect.y.saturating_add(1);
-                            canvas.move_pane(pane_id, rect.x, rect.y, true);
-                        }
-                    }
-                    _ => {}
+            let exit = match event {
+                Event::Key(key) => key_event(&key, &mut canvas, pane_id, toggle_id),
+                Event::Mouse(mouse) => {
+                    canvas.set_cursor(Some((mouse.column as usize, mouse.row as usize)));
+                    false
                 }
+                _ => false,
+            };
+
+            if exit {
+                break 'main;
             }
         }
 

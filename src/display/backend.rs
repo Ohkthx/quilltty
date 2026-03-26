@@ -4,6 +4,8 @@
 
 use std::io::{self, Write};
 
+use crossterm::cursor;
+
 use crate::{Glyph, Rune, Style, display::Pane};
 
 /// Convert from XY Coordinate system to index.
@@ -169,8 +171,9 @@ impl Compositor {
 
 /// Compares frames by calculating differences, writes output to terminal.
 pub struct Renderer {
-    front: Frame,    // Last rendered frame, the current displayed.
-    buf: AnsiBuffer, // Output buffer that is written to terminal.
+    front: Frame,                   // Last rendered frame, the current displayed.
+    buf: AnsiBuffer,                // Output buffer that is written to terminal.
+    cursor: Option<(usize, usize)>, // Last rendered cursor position.
 }
 
 impl Renderer {
@@ -184,6 +187,7 @@ impl Renderer {
         Self {
             front,
             buf: AnsiBuffer::new(width * height * 12),
+            cursor: None,
         }
     }
 
@@ -203,18 +207,37 @@ impl Renderer {
         &mut self,
         compositor: &Compositor,
         spans: &[DamagedSpan],
+        cursor: Option<(usize, usize)>,
         out: &mut W,
     ) -> io::Result<()> {
-        debug_assert_eq!(self.width(), compositor.width());
-        debug_assert_eq!(self.height(), compositor.height());
+        let has_damage = spans.iter().any(|span| span.damaged);
+        let cursor_changed = self.cursor != cursor;
+        if !has_damage && !cursor_changed {
+            return Ok(()); // Early exit with nothing to do.
+        }
 
         self.buf.clear();
 
-        let (front, buf) = (&mut self.front, &mut self.buf);
-        Self::diff_damaged(front, &compositor.back, spans, buf);
+        if has_damage {
+            let (front, buf) = (&mut self.front, &mut self.buf);
+            Self::diff_damaged(front, &compositor.back, spans, buf);
+        }
 
         self.buf.extend(AnsiBuffer::RESET_STYLE);
-        out.write_all(&self.buf.0)
+
+        match cursor {
+            Some((x, y)) => {
+                self.buf.push_move_sequence(x, y);
+                self.buf.extend(AnsiBuffer::SHOW_CURSOR);
+            }
+            None => {
+                self.buf.extend(AnsiBuffer::HIDE_CURSOR);
+            }
+        }
+
+        out.write_all(&self.buf.0)?;
+        self.cursor = cursor;
+        Ok(())
     }
 
     /// Compares only damaged spans between `front` and `back`, emits the minimal
