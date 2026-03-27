@@ -49,6 +49,15 @@ impl Point {
         Self::new(self.x.saturating_add(dx), self.y.saturating_add(dy))
     }
 
+    /// Returns a new point after saturating addition.
+    #[inline]
+    pub const fn saturating_add(self, other: Self) -> Self {
+        Self::new(
+            self.x.saturating_add(other.x),
+            self.y.saturating_add(other.y),
+        )
+    }
+
     /// Returns a new point after saturating subtraction.
     #[inline]
     pub const fn saturating_sub(self, other: Self) -> Self {
@@ -68,6 +77,12 @@ impl Point {
     #[inline]
     pub fn max(self, other: Self) -> Self {
         Self::new(self.x.max(other.x), self.y.max(other.y))
+    }
+
+    /// Converts a `Point` into a flattened index.
+    #[inline]
+    pub(crate) fn as_index(&self, width: usize) -> usize {
+        self.y * width + self.x
     }
 }
 
@@ -149,9 +164,10 @@ impl Rect {
 
     /// Assigns the position for the `Rect`.
     #[must_use]
-    pub fn position(mut self, x: usize, y: usize) -> Self {
-        self.x = x;
-        self.y = y;
+    pub fn position(mut self, origin: impl Into<Point>) -> Self {
+        let xy = origin.into();
+        self.x = xy.x;
+        self.y = xy.y;
         self
     }
 

@@ -9,12 +9,6 @@ use crate::{
     display::{Pane, Point},
 };
 
-/// Convert from XY Coordinate system to index.
-#[inline]
-pub(crate) fn to_index(x: usize, y: usize, width: usize) -> usize {
-    y * width + x
-}
-
 /// A span that has been marked as changed.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct DamagedSpan {
@@ -159,8 +153,8 @@ impl Compositor {
                 let len = sx1 - sx0;
 
                 // Compute flat source/destination indices.
-                let src_idx = to_index(src_x, src_y, pane.width());
-                let dst_idx = to_index(sx0, y, width);
+                let src_idx = Point::new(src_x, src_y).as_index(pane.width());
+                let dst_idx = Point::new(sx0, y).as_index(width);
 
                 // Overlay the pane slice onto the composed back buffer.
                 self.back.data[dst_idx..dst_idx + len]

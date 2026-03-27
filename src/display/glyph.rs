@@ -1,5 +1,7 @@
 //! File: src/display/glyph.rs
 
+#![allow(dead_code)]
+
 /// Characters used to draw boxes around panes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BoxDraw {

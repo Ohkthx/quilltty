@@ -2,11 +2,7 @@
 
 use crate::{
     Canvas, Color, Glyph, Rect, Style,
-    display::{
-        Point,
-        backend::{DamagedSpan, to_index},
-        glyph::BorderKind,
-    },
+    display::{Point, backend::DamagedSpan, glyph::BorderKind, indexed_vec::Keyed},
 };
 
 /// Unique identifier for individual panes.
@@ -118,8 +114,12 @@ impl<'a> PaneBuilder<'a> {
             .with_data(vec![Glyph::default(); self.rect.width * self.rect.height])
             .build();
 
-        let idx = canvas.panes.partition_point(|p| p.z_layer <= pane.z_layer);
-        canvas.panes.insert(idx, pane);
+        let idx = canvas
+            .panes
+            .as_slice()
+            .partition_point(|p| p.z_layer <= pane.z_layer);
+
+        canvas.panes.insert_at(idx, pane);
         pane_id
     }
 }
@@ -379,36 +379,33 @@ impl Pane {
         self.visible
     }
 
-    fn set_local(&mut self, x: usize, y: usize, glyph: Glyph) {
+    fn set_local(&mut self, pos: Point, glyph: Glyph) {
         let Rect { width, height, .. } = self.rect;
-        debug_assert!(x < width && y < height);
+        debug_assert!(pos.x < width && pos.y < height);
 
-        let index = to_index(x, y, width);
+        let index = pos.as_index(width);
         if self.data[index] != glyph {
             self.data[index] = glyph;
-            self.damaged[y].mark(x);
+            self.damaged[pos.y].mark(pos.x);
         }
     }
 
-    fn raw_set(&mut self, x: usize, y: usize, glyph: Glyph) {
-        self.set_local(x, y, glyph);
+    fn raw_set(&mut self, pos: Point, glyph: Glyph) {
+        self.set_local(pos, glyph);
     }
 
     /// Writes a glyph at `(x, y)` if it lies within the pane. Expects the coordinates supplied to
     /// be local to the `Pane` scope.
-    pub fn set(&mut self, x: usize, y: usize, glyph: impl Into<Glyph>) {
+    pub fn set(&mut self, pos: Point, glyph: impl Into<Glyph>) {
         let content = self.content_rect();
-        let inset_x = content.x.saturating_sub(self.rect.x);
-        let inset_y = content.y.saturating_sub(self.rect.y);
+        let inset = content.origin().saturating_sub(self.rect.origin());
 
-        if x >= content.width || y >= content.height {
+        if pos.x >= content.width || pos.y >= content.height {
             return;
         }
 
-        let px = inset_x.saturating_add(x);
-        let py = inset_y.saturating_add(y);
-
-        self.raw_set(px, py, glyph.into());
+        let pxy = inset.saturating_add(pos);
+        self.raw_set(pxy, glyph.into());
     }
 
     /// Updates the title of the `Pane`.
@@ -418,24 +415,23 @@ impl Pane {
     }
 
     /// Writes `text` on a single content row starting at `(x, y)` with `style`.
-    pub fn write_str(&mut self, x: usize, y: usize, text: &str, style: Style) {
+    pub fn write_str(&mut self, position: Point, text: &str, style: Style) {
         let content = self.content_rect();
-        let offset_x = content.x.saturating_sub(self.rect.x);
-        let offset_y = content.y.saturating_sub(self.rect.y);
+        let offset = content.origin().saturating_sub(self.rect.origin());
 
-        if y >= content.height {
+        if position.y >= content.height {
             return;
         }
 
-        let pane_y = offset_y + y;
+        let mut pane_xy = offset.saturating_add(position);
         for (dx, ch) in text.chars().enumerate() {
-            let content_x = x + dx;
+            let content_x = position.x + dx;
             if content_x >= content.width {
                 break;
             }
 
-            let pane_x = offset_x + content_x;
-            self.raw_set(pane_x, pane_y, Glyph::new().with_rune(ch).with_style(style));
+            pane_xy.x = offset.x + content_x;
+            self.raw_set(pane_xy, Glyph::new().with_rune(ch).with_style(style));
         }
     }
 
@@ -473,10 +469,7 @@ impl Pane {
         self.rect.height = height;
 
         let new_content = self.content_rect();
-        let new_offset = Point::new(
-            new_content.x.saturating_sub(self.rect.x),
-            new_content.y.saturating_sub(self.rect.y),
-        );
+        let new_offset = new_content.origin().saturating_sub(self.rect.origin());
 
         let copy_width = old_content.width.min(new_content.width);
         let copy_height = old_content.height.min(new_content.height);
@@ -485,8 +478,9 @@ impl Pane {
 
         for y in 0..copy_height {
             for x in 0..copy_width {
-                let old_idx = to_index(old_offset.x + x, old_offset.y + y, old_rect.width);
-                let new_idx = to_index(new_offset.x + x, new_offset.y + y, width);
+                let xy = Point::new(x, y);
+                let old_idx = old_offset.saturating_add(xy).as_index(old_rect.width);
+                let new_idx = new_offset.saturating_add(xy).as_index(width);
                 new_data[new_idx] = old_data[old_idx];
             }
         }
@@ -501,8 +495,7 @@ impl Pane {
     /// Fills the pane content area with `glyph`.
     pub fn fill(&mut self, glyph: Glyph) {
         let content = self.content_rect();
-        let offset_x = content.x.saturating_sub(self.rect.x);
-        let offset_y = content.y.saturating_sub(self.rect.y);
+        let offset = content.origin().saturating_sub(self.rect.origin());
         let pane_width = self.rect.width;
 
         if content.width == 0 || content.height == 0 {
@@ -510,8 +503,8 @@ impl Pane {
         }
 
         for y in 0..content.height {
-            let pane_y = offset_y + y;
-            let row_start = to_index(offset_x, pane_y, pane_width);
+            let pane_y = offset.y + y;
+            let row_start = Point::new(offset.x, pane_y).as_index(pane_width);
             let row = &mut self.data[row_start..row_start + content.width];
 
             let mut changed = false;
@@ -523,7 +516,7 @@ impl Pane {
             }
 
             if changed {
-                self.damaged[pane_y].mark_range(offset_x, offset_x + content.width - 1);
+                self.damaged[pane_y].mark_range(offset.x, offset.x + content.width - 1);
             }
         }
     }
@@ -584,19 +577,19 @@ impl Pane {
             Glyph::from(kind.bottom_right()).with_style(style)
         };
 
-        self.raw_set(0, 0, top_left);
-        self.raw_set(width - 1, 0, top_right);
-        self.raw_set(0, height - 1, bottom_left);
-        self.raw_set(width - 1, height - 1, bottom_right);
+        self.raw_set(Point::ZERO, top_left);
+        self.raw_set(Point::new(width - 1, 0), top_right);
+        self.raw_set(Point::new(0, height - 1), bottom_left);
+        self.raw_set(Point::new(width - 1, height - 1), bottom_right);
 
         for x in 1..width - 1 {
-            self.raw_set(x, 0, horizontal);
-            self.raw_set(x, height - 1, horizontal);
+            self.raw_set(Point::new(x, 0), horizontal);
+            self.raw_set(Point::new(x, height - 1), horizontal);
         }
 
         for y in 1..height - 1 {
-            self.raw_set(0, y, vertical);
-            self.raw_set(width - 1, y, vertical);
+            self.raw_set(Point::new(0, y), vertical);
+            self.raw_set(Point::new(width - 1, y), vertical);
         }
     }
 
@@ -612,30 +605,31 @@ impl Pane {
         }
 
         let style = Style::new().with_fg(Color::White).bold();
-        let y = 0;
         let space = Glyph::from(' ').with_style(style);
+        let mut xy = Point::ZERO;
 
         if self.border.is_some() {
             if width <= 2 {
                 return;
             }
 
-            let mut x = Self::TITLE_OFFSET;
-            self.raw_set(x, y, space);
-            x += 1;
+            xy.x = Self::TITLE_OFFSET;
+            self.raw_set(xy, space);
+            xy.x += 1;
 
             let max_title_width = width.saturating_sub(4);
             for ch in title.chars().take(max_title_width) {
-                self.raw_set(x, y, Glyph::from(ch).with_style(style));
-                x += 1;
+                self.raw_set(xy, Glyph::from(ch).with_style(style));
+                xy.x += 1;
             }
 
-            if x < width - 1 {
-                self.raw_set(x, y, space);
+            if xy.x < width - 1 {
+                self.raw_set(xy, space);
             }
         } else {
             for (x, ch) in title.chars().take(width).enumerate() {
-                self.raw_set(x, y, Glyph::from(ch).with_style(style));
+                xy.x = x;
+                self.raw_set(xy, Glyph::from(ch).with_style(style));
             }
         }
     }
@@ -651,7 +645,8 @@ impl Pane {
             self.draw_border();
         } else {
             for x in 0..self.rect.width {
-                self.raw_set(x, 0, Glyph::default());
+                let xy = Point::ZERO.with_x(x);
+                self.raw_set(xy, Glyph::default());
             }
         }
 
@@ -669,5 +664,11 @@ impl Pane {
         if self.title.is_some() {
             self.draw_title();
         }
+    }
+}
+
+impl Keyed<PaneId> for Pane {
+    fn key(&self) -> &PaneId {
+        &self.id
     }
 }

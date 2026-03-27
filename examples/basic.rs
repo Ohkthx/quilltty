@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEventKind};
 use quilltty::{
     BorderKind, Canvas, Color, Compositor, Glyph, Input, PaneElement, PaneHit, PaneId, Point, Rect,
     Renderer, Style, Terminal,
@@ -133,7 +133,7 @@ fn main() -> io::Result<()> {
         .create_pane()
         .rect(
             Rect::default()
-                .position(width / 10, height / 10)
+                .with_origin((width / 10, height / 10).into())
                 .width(width / 2)
                 .height(height / 2),
         )
@@ -167,16 +167,28 @@ fn main() -> io::Result<()> {
 
     // Root layer content.
     let root = canvas.root_mut();
-    root.write_str(0, 0, "Press arrow keys to move pane.", root_style);
-    root.write_str(0, 1, "Press 'q' to quit.", root_style);
-    root.write_str(0, 2, "Press 's' to toggle hidden pane.", root_style);
+    root.write_str(Point::ZERO, "Press arrow keys to move pane.", root_style);
+    root.write_str(Point::ZERO.with_y(1), "Press 'q' to quit.", root_style);
+    root.write_str(
+        Point::ZERO.with_y(2),
+        "Press 's' to toggle hidden pane.",
+        root_style,
+    );
     canvas.set_pane_title(Canvas::ROOT_ID, Some("quilltty - root".into()));
 
     // Pane content.
     let pane = canvas.pane_mut(pane_id).expect("pane should exist");
     pane.fill(Glyph::from('·').with_style(pane_fill_style));
-    pane.write_str(2, 0, "SOME TEXT TO BE DISPLAYED.", pane_style);
-    pane.write_str(2, 1, "This pane has a higher z-layer.", pane_style);
+    pane.write_str(
+        Point::ZERO.with_x(2),
+        "SOME TEXT TO BE DISPLAYED.",
+        pane_style,
+    );
+    pane.write_str(
+        Point::new(2, 1),
+        "This pane has a higher z-layer.",
+        pane_style,
+    );
 
     canvas.render(&mut compositor, &mut renderer, &mut stdout)?;
     stdout.flush()?;

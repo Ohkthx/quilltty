@@ -3,6 +3,7 @@
 use crate::display::Point;
 use crate::display::backend::DamagedSpan;
 use crate::display::glyph::BorderKind;
+use crate::display::indexed_vec::IndexedVec;
 use crate::display::pane::PaneElement;
 use crate::{Color, Compositor, Glyph, Pane, PaneBuilder, PaneId, Rect, Renderer, Style};
 
@@ -20,12 +21,12 @@ pub struct PaneHit {
 
 /// Manages panes, their ordering, creation, and deletion.
 pub struct Canvas {
-    pub(crate) root: Pane,                // Main pane.
-    pub(crate) panes: Vec<Pane>,          // Child panes to the root.
-    pub(crate) damaged: Vec<DamagedSpan>, // Damaged spans for each canvas row.
-    pub(crate) freed_ids: Vec<PaneId>,    // Reusable PaneIds.
-    pub(crate) cursor: Option<Point>,     // Cursor position on the Canvas.
-    pub(crate) focus: PaneId,             // Currently focused Pane.
+    pub(crate) root: Pane,                      // Main pane.
+    pub(crate) panes: IndexedVec<PaneId, Pane>, // Child panes to the root.
+    pub(crate) damaged: Vec<DamagedSpan>,       // Damaged spans for each canvas row.
+    pub(crate) freed_ids: Vec<PaneId>,          // Reusable PaneIds.
+    pub(crate) cursor: Option<Point>,           // Cursor position on the Canvas.
+    pub(crate) focus: PaneId,                   // Currently focused Pane.
 }
 
 impl Canvas {
@@ -56,7 +57,7 @@ impl Canvas {
                 .with_title(None)
                 .with_data(vec![Glyph::default(); width * height])
                 .build(),
-            panes: Vec::new(),
+            panes: IndexedVec::new(),
             damaged: vec![DamagedSpan::default(); height],
             freed_ids: Vec::new(),
             cursor: None,
@@ -93,19 +94,19 @@ impl Canvas {
     /// Obtains an immutable pane from currently managed panes.
     pub fn pane(&self, pane_id: PaneId) -> Option<&Pane> {
         if pane_id == Self::ROOT_ID {
-            return Some(&self.root);
+            Some(&self.root)
+        } else {
+            self.panes.get(&pane_id)
         }
-
-        self.panes.iter().find(|p| p.id == pane_id)
     }
 
     /// Obtains a mutable pane from currently managed panes.
     pub fn pane_mut(&mut self, pane_id: PaneId) -> Option<&mut Pane> {
         if pane_id == Self::ROOT_ID {
-            return Some(&mut self.root);
+            Some(&mut self.root)
+        } else {
+            self.panes.get_mut(&pane_id)
         }
-
-        self.panes.iter_mut().find(|p| p.id == pane_id)
     }
 
     /// Sets the cursor to specific coordinates on the `Canvas`.
@@ -114,8 +115,8 @@ impl Canvas {
     }
 
     /// Writes a `Glyph` to the root pane at `(x, y)`.
-    pub fn set(&mut self, x: usize, y: usize, glyph: impl Into<Glyph>) {
-        self.root.set(x, y, glyph);
+    pub fn set(&mut self, position: Point, glyph: impl Into<Glyph>) {
+        self.root.set(position, glyph);
     }
 
     /// Set the `Pane` title to a new value.
@@ -362,22 +363,17 @@ impl Canvas {
         let has_damage = self.damaged.iter().any(|span| span.damaged);
 
         if has_damage {
-            compositor.flatten(&self.root, &self.panes, &self.damaged);
+            compositor.flatten(&self.root, self.panes.as_slice(), &self.damaged);
         }
 
         renderer.render(compositor, &self.damaged, self.cursor, out)?;
         self.root.clear_damaged();
-        for pane in &mut self.panes {
+        for pane in self.panes.iter_mut() {
             pane.clear_damaged();
         }
         self.clear_damage();
 
         Ok(())
-    }
-
-    /// Locates the `Pane` index.
-    fn pane_index(&self, pane_id: PaneId) -> Option<usize> {
-        self.panes.iter().position(|p| p.id == pane_id)
     }
 
     /// Applies `f` to the pane identified by `pane_id` and returns its rectangle and
@@ -389,18 +385,13 @@ impl Canvas {
         pane_id: PaneId,
         f: impl FnOnce(&mut Pane) -> R,
     ) -> Option<(Rect, bool, Rect, bool, R)> {
-        let idx = self.pane_index(pane_id)?;
+        let pane = self.panes.get_mut(&pane_id)?;
 
-        let old_rect = self.panes[idx].rect;
-        let old_visible = self.panes[idx].visible;
-
-        let result = {
-            let pane = &mut self.panes[idx];
-            f(pane)
-        };
-
-        let new_rect = self.panes[idx].rect;
-        let new_visible = self.panes[idx].visible;
+        let old_rect = pane.rect;
+        let old_visible = pane.visible;
+        let result = f(pane);
+        let new_rect = pane.rect;
+        let new_visible = pane.visible;
 
         Some((old_rect, old_visible, new_rect, new_visible, result))
     }
@@ -486,7 +477,7 @@ impl Canvas {
         let Rect { width, height, .. } = self.root.rect;
         Self::project_pane_damage_to_canvas(&mut self.damaged, width, height, &self.root);
 
-        for pane in &self.panes {
+        for pane in self.panes.iter() {
             if pane.visible {
                 Self::project_pane_damage_to_canvas(&mut self.damaged, width, height, pane);
             }
