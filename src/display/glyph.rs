@@ -103,6 +103,13 @@ impl BorderKind {
             BorderKind::Double => BoxDraw::DoubleBottomRight,
         }
     }
+
+    pub(crate) const fn cross(self) -> BoxDraw {
+        match self {
+            BorderKind::Double => BoxDraw::DoubleCross,
+            _ => BoxDraw::Cross,
+        }
+    }
 }
 
 /// Basic ANSI colors used for foreground and background styling.

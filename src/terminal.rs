@@ -9,6 +9,8 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
 
+use crate::display::Point;
+
 /// Enables / Disables the terminal state including mouse capturing.
 pub struct Terminal {
     mouse: bool, // Flag for mouse capturing.
@@ -29,8 +31,8 @@ impl Terminal {
     }
 
     /// Outputs the size of the terminal.
-    pub fn size() -> io::Result<(usize, usize)> {
-        terminal::size().map(|(w, h)| (w as usize, h as usize))
+    pub fn size() -> io::Result<Point> {
+        terminal::size().map(|size| size.into())
     }
 }
 
@@ -54,8 +56,8 @@ pub struct Input {
 }
 
 impl Input {
-    /// Starts background event reader.
-    pub fn listen() -> io::Result<Self> {
+    /// Starts background event reader polling for `interval_ms` milliseconds.
+    pub fn listen(interval_ms: u64) -> io::Result<Self> {
         let (tx, rx) = mpsc::sync_channel(256);
         let stop = Arc::new(AtomicBool::new(false));
         let threaded_stop = Arc::clone(&stop);
@@ -64,7 +66,7 @@ impl Input {
         let handle = thread::Builder::new().name("quilltty-input".into()).spawn(
             move || -> io::Result<()> {
                 while !threaded_stop.load(Ordering::Relaxed) {
-                    if event::poll(time::Duration::from_millis(50))? {
+                    if event::poll(time::Duration::from_millis(interval_ms))? {
                         let ev = event::read()?;
                         if tx.send(ev).is_err() {
                             break;

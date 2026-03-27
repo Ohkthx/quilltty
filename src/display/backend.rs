@@ -4,9 +4,10 @@
 
 use std::io::{self, Write};
 
-use crossterm::cursor;
-
-use crate::{Glyph, Rune, Style, display::Pane};
+use crate::{
+    Glyph, Rune, Style,
+    display::{Pane, Point},
+};
 
 /// Convert from XY Coordinate system to index.
 #[inline]
@@ -171,9 +172,9 @@ impl Compositor {
 
 /// Compares frames by calculating differences, writes output to terminal.
 pub struct Renderer {
-    front: Frame,                   // Last rendered frame, the current displayed.
-    buf: AnsiBuffer,                // Output buffer that is written to terminal.
-    cursor: Option<(usize, usize)>, // Last rendered cursor position.
+    front: Frame,          // Last rendered frame, the current displayed.
+    buf: AnsiBuffer,       // Output buffer that is written to terminal.
+    cursor: Option<Point>, // Last rendered cursor position.
 }
 
 impl Renderer {
@@ -207,7 +208,7 @@ impl Renderer {
         &mut self,
         compositor: &Compositor,
         spans: &[DamagedSpan],
-        cursor: Option<(usize, usize)>,
+        cursor: Option<Point>,
         out: &mut W,
     ) -> io::Result<()> {
         let has_damage = spans.iter().any(|span| span.damaged);
@@ -226,7 +227,7 @@ impl Renderer {
         self.buf.extend(AnsiBuffer::RESET_STYLE);
 
         match cursor {
-            Some((x, y)) => {
+            Some(Point { x, y }) => {
                 self.buf.push_move_sequence(x, y);
                 self.buf.extend(AnsiBuffer::SHOW_CURSOR);
             }

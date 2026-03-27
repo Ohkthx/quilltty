@@ -3,6 +3,7 @@
 use crate::{
     Canvas, Color, Glyph, Rect, Style,
     display::{
+        Point,
         backend::{DamagedSpan, to_index},
         glyph::BorderKind,
     },
@@ -11,6 +12,15 @@ use crate::{
 /// Unique identifier for individual panes.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone)]
 pub struct PaneId(pub(crate) u32);
+
+/// Clickable elements within a `Pane`.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone)]
+pub enum PaneElement {
+    Title,
+    Border,
+    Content,
+    Resize,
+}
 
 /// Builder for configuring and inserting a new `Pane` into the `Canvas`.
 pub struct PaneBuilder<'a> {
@@ -98,6 +108,7 @@ impl<'a> PaneBuilder<'a> {
         let pane = Pane::new(pane_id)
             .with_rect(self.rect)
             .with_z_layer(self.z_layer)
+            .with_focus(false)
             .with_visibility(self.visible)
             .with_movability(self.movable)
             .with_resizability(self.resizable)
@@ -119,8 +130,9 @@ pub struct Pane {
     pub(crate) rect: Rect,   // Position (XY coordinates) and dimensions (Width x Height).
     pub(crate) z_layer: u16, // Priority and rendering position.
 
-    pub(crate) visible: bool, // If true, `Pane` will render, otherwise it is hidden.
-    pub(crate) movable: bool, // If true, `Pane` can be moved.
+    pub(crate) focused: bool,   // If true, `Pane` will be marked as focused.
+    pub(crate) visible: bool,   // If true, `Pane` will render, otherwise it is hidden.
+    pub(crate) movable: bool,   // If true, `Pane` can be moved.
     pub(crate) resizable: bool, // If true, `Pane` can be resized.
 
     pub(crate) border: Option<BorderKind>, // Marks if a border goes around the `Pane`.
@@ -132,6 +144,8 @@ pub struct Pane {
 }
 
 impl Pane {
+    const TITLE_OFFSET: usize = 2; // Offset from the top-left side.
+
     /// Constructs a new pane with defaults and the unique identifier.
     #[must_use]
     pub(crate) fn new(pane_id: PaneId) -> Self {
@@ -140,6 +154,7 @@ impl Pane {
             rect: Rect::default(),
             z_layer: 1,
 
+            focused: false,
             visible: true,
             movable: true,
             resizable: true,
@@ -208,6 +223,13 @@ impl Pane {
         self
     }
 
+    /// Assigns if the `Pane` will be focused.
+    #[must_use]
+    pub(crate) fn with_focus(mut self, is_focus: bool) -> Self {
+        self.focused = is_focus;
+        self
+    }
+
     /// Assigns the default data to be rendered.
     #[must_use]
     pub(crate) fn with_data(mut self, data: Vec<Glyph>) -> Self {
@@ -221,14 +243,7 @@ impl Pane {
     /// Performs final cleanup, setting any last touches.
     #[must_use]
     pub(crate) fn build(mut self) -> Self {
-        if self.border.is_some() {
-            self.draw_border();
-        }
-
-        if self.title.is_some() {
-            self.draw_title();
-        }
-
+        self.draw_decorations();
         self
     }
 
@@ -276,6 +291,65 @@ impl Pane {
         self.visible
     }
 
+    /// Current title of the `Pane` if it is set.
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Minimum width and height for the `Pane`.
+    pub(crate) fn minimum_size(&self) -> Point {
+        if self.border.is_some() {
+            Point::new(3, 3)
+        } else if self.title.is_some() {
+            Point::new(1, 2)
+        } else {
+            Point::new(1, 1)
+        }
+    }
+
+    /// Obtains the element at specific coordinates, returning None if outside the pane.
+    pub(crate) fn element_at(&self, point: Point) -> Option<PaneElement> {
+        let Rect { width, height, .. } = self.rect;
+        let Point { x, y } = point;
+
+        if x >= width || y >= height {
+            return None;
+        }
+
+        let has_border = self.border.is_some();
+        let has_title = self.title.is_some();
+
+        let on_left = x == 0;
+        let on_right = x + 1 == width;
+        let on_top = y == 0;
+        let on_bottom = y + 1 == height;
+
+        // Bottom-right corner is the resize handle when bordered + resizable.
+        if has_border && self.resizable && on_right && on_bottom {
+            return Some(PaneElement::Resize);
+        }
+
+        // Treat the header row as title space.
+        //
+        // Bordered panes: the top row excluding the two corners.
+        // Borderless panes: the full first row.
+        if has_title {
+            if has_border {
+                if on_top && !on_left && !on_right {
+                    return Some(PaneElement::Title);
+                }
+            } else if on_top {
+                return Some(PaneElement::Title);
+            }
+        }
+
+        if has_border && (on_left || on_right || on_top || on_bottom) {
+            return Some(PaneElement::Border);
+        }
+
+        Some(PaneElement::Content)
+    }
+
     pub(crate) fn hide(&mut self) -> bool {
         if !self.visible {
             return false;
@@ -305,11 +379,6 @@ impl Pane {
         self.visible
     }
 
-    /// Current title of the `Pane` if it is set.
-    pub fn title(&self) -> Option<&str> {
-        self.title.as_deref()
-    }
-
     fn set_local(&mut self, x: usize, y: usize, glyph: Glyph) {
         let Rect { width, height, .. } = self.rect;
         debug_assert!(x < width && y < height);
@@ -325,7 +394,8 @@ impl Pane {
         self.set_local(x, y, glyph);
     }
 
-    /// Writes a glyph at `(x, y)` if it lies within the pane.
+    /// Writes a glyph at `(x, y)` if it lies within the pane. Expects the coordinates supplied to
+    /// be local to the `Pane` scope.
     pub fn set(&mut self, x: usize, y: usize, glyph: impl Into<Glyph>) {
         let content = self.content_rect();
         let inset_x = content.x.saturating_sub(self.rect.x);
@@ -367,6 +437,65 @@ impl Pane {
             let pane_x = offset_x + content_x;
             self.raw_set(pane_x, pane_y, Glyph::new().with_rune(ch).with_style(style));
         }
+    }
+
+    /// Marks the `Pane` as being focused.
+    pub(crate) fn set_focus(&mut self, is_focus: bool) {
+        if self.focused == is_focus {
+            return;
+        }
+
+        self.focused = is_focus;
+        self.draw_decorations();
+    }
+
+    /// Resizes the `Pane` to the dimensions provided.
+    pub(crate) fn resize(&mut self, width: usize, height: usize) {
+        let min = self.minimum_size();
+        if width < min.x || height < min.y {
+            return;
+        }
+
+        if width == self.rect.width && height == self.rect.height {
+            return;
+        }
+
+        let old_rect = self.rect;
+        let old_content = self.content_rect();
+        let old_offset = Point::new(
+            old_content.x.saturating_sub(old_rect.x),
+            old_content.y.saturating_sub(old_rect.y),
+        );
+
+        let old_data = std::mem::take(&mut self.data);
+
+        self.rect.width = width;
+        self.rect.height = height;
+
+        let new_content = self.content_rect();
+        let new_offset = Point::new(
+            new_content.x.saturating_sub(self.rect.x),
+            new_content.y.saturating_sub(self.rect.y),
+        );
+
+        let copy_width = old_content.width.min(new_content.width);
+        let copy_height = old_content.height.min(new_content.height);
+
+        let mut new_data = vec![Glyph::default(); width * height];
+
+        for y in 0..copy_height {
+            for x in 0..copy_width {
+                let old_idx = to_index(old_offset.x + x, old_offset.y + y, old_rect.width);
+                let new_idx = to_index(new_offset.x + x, new_offset.y + y, width);
+                new_data[new_idx] = old_data[old_idx];
+            }
+        }
+
+        self.data = new_data;
+        self.damaged = vec![DamagedSpan::default(); height];
+
+        self.draw_decorations();
+        self.mark_all_damaged();
     }
 
     /// Fills the pane content area with `glyph`.
@@ -438,14 +567,22 @@ impl Pane {
             return;
         }
 
-        let style = self.border_style;
+        let style = if self.focused {
+            self.border_style.with_fg(Color::Red).bold()
+        } else {
+            self.border_style
+        };
 
+        let horizontal = Glyph::from(kind.horizontal()).with_style(style);
+        let vertical = Glyph::from(kind.vertical()).with_style(style);
         let top_left = Glyph::from(kind.top_left()).with_style(style);
         let top_right = Glyph::from(kind.top_right()).with_style(style);
         let bottom_left = Glyph::from(kind.bottom_left()).with_style(style);
-        let bottom_right = Glyph::from(kind.bottom_right()).with_style(style);
-        let horizontal = Glyph::from(kind.horizontal()).with_style(style);
-        let vertical = Glyph::from(kind.vertical()).with_style(style);
+        let bottom_right = if self.resizable {
+            Glyph::from(kind.cross()).with_style(style)
+        } else {
+            Glyph::from(kind.bottom_right()).with_style(style)
+        };
 
         self.raw_set(0, 0, top_left);
         self.raw_set(width - 1, 0, top_right);
@@ -483,7 +620,7 @@ impl Pane {
                 return;
             }
 
-            let mut x = 1;
+            let mut x = Self::TITLE_OFFSET;
             self.raw_set(x, y, space);
             x += 1;
 
@@ -516,6 +653,17 @@ impl Pane {
             for x in 0..self.rect.width {
                 self.raw_set(x, 0, Glyph::default());
             }
+        }
+
+        if self.title.is_some() {
+            self.draw_title();
+        }
+    }
+
+    /// Draws all decorations for the pane.
+    fn draw_decorations(&mut self) {
+        if self.border.is_some() {
+            self.draw_border();
         }
 
         if self.title.is_some() {

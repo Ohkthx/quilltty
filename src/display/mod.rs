@@ -7,7 +7,7 @@ mod glyph;
 mod pane;
 
 pub use backend::{Compositor, Renderer};
-pub use canvas::Canvas;
-pub use geometry::Rect;
+pub use canvas::{Canvas, PaneHit};
+pub use geometry::{Point, Rect};
 pub use glyph::{BorderKind, Color, Glyph, Rune, Style};
-pub use pane::{Pane, PaneBuilder, PaneId};
+pub use pane::{Pane, PaneBuilder, PaneElement, PaneId};

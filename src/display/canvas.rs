@@ -1,16 +1,31 @@
 //! File: src/display/canvas.rs
 
+use crate::display::Point;
 use crate::display::backend::DamagedSpan;
 use crate::display::glyph::BorderKind;
+use crate::display::pane::PaneElement;
 use crate::{Color, Compositor, Glyph, Pane, PaneBuilder, PaneId, Rect, Renderer, Style};
+
+/// `Pane` and `Element` for hit detection.
+pub struct PaneHit {
+    /// Unique identifier for the `Pane`.
+    pub pane_id: PaneId,
+    /// Element that was hit.
+    pub element: PaneElement,
+    /// Local `Point`.
+    pub local: Point,
+    /// Global `Point`
+    pub global: Point,
+}
 
 /// Manages panes, their ordering, creation, and deletion.
 pub struct Canvas {
-    pub(crate) root: Pane,                     // Main pane.
-    pub(crate) panes: Vec<Pane>,               // Child panes to the root.
-    pub(crate) damaged: Vec<DamagedSpan>,      // Damaged spans for each canvas row.
-    pub(crate) freed_ids: Vec<PaneId>,         // Reusable PaneIds.
-    pub(crate) cursor: Option<(usize, usize)>, // Cursor position on the Canvas.
+    pub(crate) root: Pane,                // Main pane.
+    pub(crate) panes: Vec<Pane>,          // Child panes to the root.
+    pub(crate) damaged: Vec<DamagedSpan>, // Damaged spans for each canvas row.
+    pub(crate) freed_ids: Vec<PaneId>,    // Reusable PaneIds.
+    pub(crate) cursor: Option<Point>,     // Cursor position on the Canvas.
+    pub(crate) focus: PaneId,             // Currently focused Pane.
 }
 
 impl Canvas {
@@ -32,6 +47,7 @@ impl Canvas {
             root: Pane::new(Self::ROOT_ID)
                 .with_rect(rect)
                 .with_z_layer(0)
+                .with_focus(false)
                 .with_visibility(true)
                 .with_movability(false)
                 .with_resizability(false)
@@ -44,6 +60,7 @@ impl Canvas {
             damaged: vec![DamagedSpan::default(); height],
             freed_ids: Vec::new(),
             cursor: None,
+            focus: Self::ROOT_ID,
         }
     }
 
@@ -92,7 +109,7 @@ impl Canvas {
     }
 
     /// Sets the cursor to specific coordinates on the `Canvas`.
-    pub fn set_cursor(&mut self, cursor: Option<(usize, usize)>) {
+    pub fn set_cursor(&mut self, cursor: Option<Point>) {
         self.cursor = cursor;
     }
 
@@ -110,6 +127,7 @@ impl Canvas {
             let y = self.root.rect.y;
 
             if width > 0 {
+                // Mark the entire top row as damaged.
                 Self::mark_canvas_span_in(&mut self.damaged, width, y, 0, width - 1);
             }
 
@@ -132,21 +150,125 @@ impl Canvas {
         true
     }
 
-    /// Moves the `Pane` to the specified XY-coordinate, optionally clamping to the `Canvas`.
-    pub fn move_pane(&mut self, pane_id: PaneId, x: usize, y: usize, clamp: bool) -> bool {
+    /// Obtains the top-most `PaneId` and `PaneElement` at the `Point` provided.
+    pub fn pane_at(&self, position: Point) -> Option<PaneHit> {
+        for pane in self.panes.iter().rev() {
+            if !pane.visible || !pane.rect.contains_point(position) {
+                continue; // Ignore these panes.
+            }
+
+            // Extract the hit element.
+            let local = position.saturating_sub(pane.rect.origin());
+            if let Some(element) = pane.element_at(local) {
+                return Some(PaneHit {
+                    pane_id: pane.id,
+                    element,
+                    local,
+                    global: position,
+                });
+            }
+        }
+
+        // Default to root.
+        if self.root.rect().contains_point(position) {
+            let local = position.saturating_sub(self.root.rect.origin());
+            return self.root.element_at(local).map(|element| PaneHit {
+                pane_id: Self::ROOT_ID,
+                element,
+                local,
+                global: position,
+            });
+        }
+
+        None
+    }
+
+    /// Sets the `PaneId` to be the current focus.
+    pub fn focus_pane(&mut self, pane_id: PaneId) -> bool {
+        if pane_id == self.focus {
+            return true; // Nothing to do.
+        } else if self.pane(pane_id).is_none() {
+            return false; // Pane not found.
+        }
+
+        let old_id = self.focus;
+        self.focus = pane_id;
+
+        if let Some(old) = self.pane_mut(old_id) {
+            old.set_focus(false);
+        }
+
+        if let Some(new) = self.pane_mut(pane_id) {
+            new.set_focus(true);
+        }
+
+        true
+    }
+
+    /// Resizes the `Pane`, extending or shrinking from the resize point.
+    pub fn resize_pane(&mut self, pane_id: PaneId, width: usize, height: usize) -> bool {
         if pane_id == Self::ROOT_ID {
             return false;
         }
 
         let bounds = self.root.rect;
+        let Some((old_rect, old_visible, new_rect, _, _)) =
+            self.with_pane_state_change(pane_id, |pane| {
+                if !pane.resizable {
+                    return;
+                }
 
+                let mut width = width;
+                let mut height = height;
+
+                let min = pane.minimum_size();
+                let max_width = bounds
+                    .x
+                    .saturating_add(bounds.width)
+                    .saturating_sub(pane.rect.x)
+                    .max(min.x);
+
+                let max_height = bounds
+                    .y
+                    .saturating_add(bounds.height)
+                    .saturating_sub(pane.rect.y)
+                    .max(min.y);
+
+                width = width.min(max_width);
+                height = height.min(max_height);
+
+                pane.resize(width, height);
+            })
+        else {
+            return false;
+        };
+
+        if old_rect == new_rect {
+            return false;
+        }
+
+        if old_visible {
+            self.mark_damaged(old_rect);
+            self.mark_damaged(new_rect);
+        }
+
+        true
+    }
+
+    /// Moves the `Pane` to the specified XY-coordinate, optionally clamping to the `Canvas`.
+    pub fn move_pane(&mut self, pane_id: PaneId, position: Point, clamp: bool) -> bool {
+        if pane_id == Self::ROOT_ID {
+            return false;
+        }
+
+        let bounds = self.root.rect;
         let Some((old_rect, old_visible, new_rect, _, _)) =
             self.with_pane_state_change(pane_id, |pane| {
                 if !pane.movable {
                     return;
                 }
 
-                let rect = pane.rect.position(x, y);
+                let rect = pane.rect.with_origin(position);
                 pane.rect = if clamp { rect.clamp_to(bounds) } else { rect };
             })
         else {
