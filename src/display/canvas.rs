@@ -1,7 +1,7 @@
 //! File: src/display/canvas.rs
 
 use crate::display::Point;
-use crate::display::backend::DamagedSpan;
+use crate::display::backend::DamagedRow;
 use crate::display::glyph::BorderKind;
 use crate::display::indexed_vec::IndexedVec;
 use crate::display::pane::PaneElement;
@@ -23,7 +23,7 @@ pub struct PaneHit {
 pub struct Canvas {
     pub(crate) root: Pane,                      // Main pane.
     pub(crate) panes: IndexedVec<PaneId, Pane>, // Child panes to the root.
-    pub(crate) damaged: Vec<DamagedSpan>,       // Damaged spans for each canvas row.
+    pub(crate) damaged: Vec<DamagedRow>,        // Damaged spans for each canvas row.
     pub(crate) freed_ids: Vec<PaneId>,          // Reusable PaneIds.
     pub(crate) cursor: Option<Point>,           // Cursor position on the Canvas.
     pub(crate) focus: PaneId,                   // Currently focused Pane.
@@ -58,7 +58,7 @@ impl Canvas {
                 .with_data(vec![Glyph::default(); width * height])
                 .build(),
             panes: IndexedVec::new(),
-            damaged: vec![DamagedSpan::default(); height],
+            damaged: vec![DamagedRow::default(); height],
             freed_ids: Vec::new(),
             cursor: None,
             focus: Self::ROOT_ID,
@@ -129,7 +129,7 @@ impl Canvas {
 
             if width > 0 {
                 // Mark the entire top row as damaged.
-                Self::mark_canvas_span_in(&mut self.damaged, width, y, 0, width - 1);
+                Self::mark_canvas_span_in(&mut self.damaged, width, y, 0, width);
             }
 
             return true;
@@ -144,7 +144,7 @@ impl Canvas {
         if visible && rect.width > 0 {
             let y = rect.y;
             let x0 = rect.x;
-            let x1 = rect.x + rect.width - 1;
+            let x1 = rect.x + rect.width;
             Self::mark_canvas_span_in(&mut self.damaged, self.root.rect.width, y, x0, x1);
         }
 
@@ -360,8 +360,8 @@ impl Canvas {
         out: &mut W,
     ) -> std::io::Result<()> {
         self.collect_damage();
-        let has_damage = self.damaged.iter().any(|span| span.damaged);
 
+        let has_damage = self.damaged.iter().any(|span| span.is_damaged());
         if has_damage {
             compositor.flatten(&self.root, self.panes.as_slice(), &self.damaged);
         }
@@ -408,20 +408,12 @@ impl Canvas {
         }
 
         let x0 = rect.x;
-        let x1 = rect
-            .x
-            .saturating_add(rect.width)
-            .saturating_sub(1)
-            .min(width - 1);
+        let x1 = rect.x.saturating_add(rect.width).min(width);
 
         let y0 = rect.y;
-        let y1 = rect
-            .y
-            .saturating_add(rect.height)
-            .saturating_sub(1)
-            .min(height - 1);
+        let y1 = rect.y.saturating_add(rect.height).min(height);
 
-        for row in y0..=y1 {
+        for row in y0..y1 {
             self.damaged[row].mark_range(x0, x1);
         }
     }
@@ -429,7 +421,7 @@ impl Canvas {
     /// Marks an inclusive horizontal span on a single canvas row as damaged.
     #[inline]
     fn mark_canvas_span_in(
-        damaged: &mut [DamagedSpan],
+        damaged: &mut [DamagedRow],
         canvas_width: usize,
         y: usize,
         x0: usize,
@@ -439,8 +431,8 @@ impl Canvas {
             return;
         }
 
-        let x1 = x1.min(canvas_width - 1);
-        if x0 > x1 {
+        let x1 = x1.min(canvas_width);
+        if x0 >= x1 {
             return;
         }
 
@@ -449,14 +441,14 @@ impl Canvas {
 
     /// Projects pane-local damaged spans into canvas-space damaged spans.
     fn project_pane_damage_to_canvas(
-        damaged: &mut [DamagedSpan],
+        damaged: &mut [DamagedRow],
         canvas_width: usize,
         canvas_height: usize,
         pane: &Pane,
     ) {
         for local_y in 0..pane.height() {
-            let span = pane.damaged[local_y];
-            if !span.damaged {
+            let row = &pane.damaged[local_y];
+            if !row.is_damaged() {
                 continue;
             }
 
@@ -465,10 +457,12 @@ impl Canvas {
                 continue;
             }
 
-            let x0 = pane.rect.x.saturating_add(span.start);
-            let x1 = pane.rect.x.saturating_add(span.end);
+            for span in row.spans() {
+                let x0 = pane.rect.x.saturating_add(span.start);
+                let x1 = pane.rect.x.saturating_add(span.end);
 
-            Self::mark_canvas_span_in(damaged, canvas_width, canvas_y, x0, x1);
+                Self::mark_canvas_span_in(damaged, canvas_width, canvas_y, x0, x1);
+            }
         }
     }
 

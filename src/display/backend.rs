@@ -9,51 +9,127 @@ use crate::{
     display::{Pane, Point},
 };
 
-/// A span that has been marked as changed.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct DamagedSpan {
-    pub(crate) damaged: bool, // Marks if the span should be checked.
-    pub(crate) start: usize,  // Starting index of change.
-    pub(crate) end: usize,    // Ending index of change.
+/// A span of damaged data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Span {
+    pub(crate) start: usize,
+    /// Start of the span.
+    pub(crate) end: usize, // End of the span (exclusive).
 }
 
-impl DamagedSpan {
-    /// Marks a single index as damaged.
-    pub(crate) fn mark(&mut self, x: usize) {
-        self.mark_range(x, x);
+impl Span {
+    /// Creates a new span where end is exclusive.
+    #[inline]
+    pub(crate) fn new(start: usize, end: usize) -> Option<Self> {
+        (start < end).then_some(Self { start, end })
+    }
+}
+
+/// Represents an entire row that has damage.
+#[derive(Debug, Clone, Default)]
+pub(crate) enum DamagedRow {
+    #[default]
+    Clean,
+    One(Span),
+    Many(Vec<Span>),
+}
+
+impl DamagedRow {
+    /// Returns `true` if the row contains any damaged span.
+    #[inline]
+    pub(crate) fn is_damaged(&self) -> bool {
+        !matches!(self, Self::Clean)
     }
 
-    /// Marks an inclusive range as damaged.
-    pub(crate) fn mark_range(&mut self, start: usize, end: usize) {
-        if start > end {
-            return;
-        }
-
-        if !self.damaged {
-            self.start = start;
-            self.end = end;
-            self.damaged = true;
-        } else {
-            self.start = self.start.min(start);
-            self.end = self.end.max(end);
+    /// Returns the spans for this row.
+    #[inline]
+    pub(crate) fn spans(&self) -> &[Span] {
+        match self {
+            Self::Clean => &[],
+            Self::One(span) => std::slice::from_ref(span),
+            Self::Many(spans) => spans.as_slice(),
         }
     }
 
-    /// Clears the span, resetting it to not be damaged.
+    /// Clears all damage from this row.
+    #[inline]
     pub(crate) fn clear(&mut self) {
-        self.start = usize::MAX;
-        self.end = 0;
-        self.damaged = false;
+        *self = Self::Clean;
     }
-}
 
-impl Default for DamagedSpan {
-    fn default() -> Self {
-        Self {
-            damaged: false,
-            start: usize::MAX,
-            end: 0,
+    /// Marks a single cell as damaged.
+    #[inline]
+    pub(crate) fn mark(&mut self, x: usize) {
+        self.mark_range(x, x + 1);
+    }
+
+    /// Marks a span as damaged, where `end` is exclusive.
+    pub(crate) fn mark_range(&mut self, start: usize, end: usize) {
+        let Some(new_span) = Span::new(start, end) else {
+            return;
+        };
+
+        match self {
+            Self::Clean => {
+                *self = Self::One(new_span);
+            }
+
+            Self::One(existing) => {
+                // Disjoint with a real gap before.
+                if new_span.end < existing.start {
+                    *self = Self::Many(vec![new_span, *existing]);
+                    return;
+                }
+
+                // Disjoint with a real gap after.
+                if new_span.start > existing.end {
+                    *self = Self::Many(vec![*existing, new_span]);
+                    return;
+                }
+
+                // Overlapping or adjacent: merge.
+                existing.start = existing.start.min(new_span.start);
+                existing.end = existing.end.max(new_span.end);
+            }
+
+            Self::Many(spans) => {
+                Self::insert_merged(spans, new_span);
+
+                match spans.len() {
+                    0 => *self = Self::Clean,
+                    1 => *self = Self::One(spans[0]),
+                    _ => {} // No change to structure.
+                }
+            }
         }
+    }
+
+    /// Inserts `new_span` into `spans`, keeping them sorted and merged.
+    fn insert_merged(spans: &mut Vec<Span>, mut new_span: Span) {
+        let mut i = 0;
+
+        while i < spans.len() {
+            let cur = spans[i];
+
+            // New span is strictly before the current one, with a real gap.
+            if new_span.end < cur.start {
+                spans.insert(i, new_span);
+                return;
+            }
+
+            // New span is strictly after the current one, with a real gap.
+            if new_span.start > cur.end {
+                i += 1;
+                continue;
+            }
+
+            // Overlapping or adjacent: merge and continue consuming.
+            new_span.start = new_span.start.min(cur.start);
+            new_span.end = new_span.end.max(cur.end);
+            spans.remove(i);
+        }
+
+        spans.push(new_span);
     }
 }
 
@@ -89,76 +165,77 @@ impl Compositor {
     }
 
     /// Width (in columns).
+    #[inline]
     pub fn width(&self) -> usize {
         self.back.width
     }
 
     /// Height (in rows).
+    #[inline]
     pub fn height(&self) -> usize {
         self.back.height
     }
 
-    /// Applies the `Pane` data into the `back` buffer where `spans` are marked as damaged.
-    pub(crate) fn flatten(&mut self, root: &Pane, panes: &[Pane], spans: &[DamagedSpan]) {
+    /// Applies the visible `Pane` data into the `back` buffer only where `spans`
+    /// mark damage.
+    pub(crate) fn flatten(&mut self, root: &Pane, panes: &[Pane], spans: &[DamagedRow]) {
         let (width, height) = (self.back.width, self.back.height);
 
-        for (y, span) in spans.iter().copied().enumerate().take(height) {
-            if !span.damaged {
-                continue;
-            }
+        // Iterate each damaged row in screen space.
+        for (y, row_damage) in spans.iter().enumerate().take(height) {
+            // Process each damaged span within the row.
+            for span in row_damage.spans() {
+                let x0 = span.start.min(width);
+                let x1 = span.end.min(width);
 
-            // Clamp the damaged span to the screen width.
-            // `x0` is inclusive, `x1` is exclusive for slice indexing.
-            let x0 = span.start.min(width - 1);
-            let x1 = span.end.min(width - 1) + 1;
-
-            // Flat index where this screen row begins.
-            let row_start = y * width;
-
-            // Seed the damaged span in `back` from the root pane.
-            self.back.data[row_start + x0..row_start + x1]
-                .copy_from_slice(&root.data[row_start + x0..row_start + x1]);
-
-            // Iterate only panes that can be rendered.
-            for pane in panes {
-                if !pane.visible {
+                if x0 >= x1 {
                     continue;
                 }
 
-                // Pane vertical bounds in screen space: [py0, py1).
-                let py0 = pane.rect.y;
-                let py1 = py0.saturating_add(pane.height());
+                let row_start = y * width;
 
-                // Skip panes that do not intersect this screen row.
-                if y < py0 || y >= py1 {
-                    continue;
+                // Seed the damaged slice from the root pane.
+                self.back.data[row_start + x0..row_start + x1]
+                    .copy_from_slice(&root.data[row_start + x0..row_start + x1]);
+
+                // Overlay every visible pane that intersects this row/span.
+                for pane in panes {
+                    if !pane.visible {
+                        continue;
+                    }
+
+                    // Pane vertical bounds in screen space: [py0, py1).
+                    let py0 = pane.rect.y;
+                    let py1 = py0.saturating_add(pane.height());
+                    if y < py0 || y >= py1 {
+                        continue;
+                    }
+
+                    // Pane horizontal bounds in screen space: [px0, px1).
+                    let px0 = pane.rect.x;
+                    let px1 = px0.saturating_add(pane.width());
+
+                    // Intersect the damaged span [x0, x1) with the pane span [px0, px1).
+                    let sx0 = x0.max(px0);
+                    let sx1 = x1.min(px1).min(width);
+
+                    if sx0 >= sx1 {
+                        continue;
+                    }
+
+                    // Convert the overlapping screen-space slice into pane-local coordinates.
+                    let src_y = y - py0;
+                    let src_x = sx0 - px0;
+                    let len = sx1 - sx0;
+
+                    // Compute flat source/destination indices.
+                    let src_idx = src_y * pane.width() + src_x;
+                    let dst_idx = y * width + sx0;
+
+                    // Overlay the pane slice onto the composed back buffer.
+                    self.back.data[dst_idx..dst_idx + len]
+                        .copy_from_slice(&pane.data[src_idx..src_idx + len]);
                 }
-
-                // Pane horizontal bounds in screen space: [px0, px1).
-                let px0 = pane.rect.x;
-                let px1 = px0.saturating_add(pane.width());
-
-                // Intersect the damaged span [x0, x1) with the pane span [px0, px1).
-                let sx0 = x0.max(px0);
-                let sx1 = x1.min(px1).min(width);
-
-                // No horizontal overlap on this row.
-                if sx0 >= sx1 {
-                    continue;
-                }
-
-                // Convert the overlapping screen-space slice into pane-local coordinates.
-                let src_y = y - py0;
-                let src_x = sx0 - px0;
-                let len = sx1 - sx0;
-
-                // Compute flat source/destination indices.
-                let src_idx = Point::new(src_x, src_y).as_index(pane.width());
-                let dst_idx = Point::new(sx0, y).as_index(width);
-
-                // Overlay the pane slice onto the composed back buffer.
-                self.back.data[dst_idx..dst_idx + len]
-                    .copy_from_slice(&pane.data[src_idx..src_idx + len]);
             }
         }
     }
@@ -201,11 +278,11 @@ impl Renderer {
     pub(crate) fn render<W: Write>(
         &mut self,
         compositor: &Compositor,
-        spans: &[DamagedSpan],
+        spans: &[DamagedRow],
         cursor: Option<Point>,
         out: &mut W,
     ) -> io::Result<()> {
-        let has_damage = spans.iter().any(|span| span.damaged);
+        let has_damage = spans.iter().any(|span| span.is_damaged());
         let cursor_changed = self.cursor != cursor;
         if !has_damage && !cursor_changed {
             return Ok(()); // Early exit with nothing to do.
@@ -237,7 +314,9 @@ impl Renderer {
 
     /// Compares only damaged spans between `front` and `back`, emits the minimal
     /// cursor/style/text updates, and updates `front` to match `back`.
-    fn diff_damaged(front: &mut Frame, back: &Frame, spans: &[DamagedSpan], out: &mut AnsiBuffer) {
+    fn diff_damaged(front: &mut Frame, back: &Frame, spans: &[DamagedRow], out: &mut AnsiBuffer) {
+        // Tracks the style currently active in the terminal so redundant style
+        // sequences are avoided.
         let mut current_style = Style::default();
 
         let (width, height) = (front.width, front.height);
@@ -248,57 +327,59 @@ impl Renderer {
         debug_assert_eq!(width, back.width);
         debug_assert_eq!(height, back.height);
 
-        for (y, span) in spans.iter().copied().enumerate().take(height) {
-            if !span.damaged {
-                continue;
-            }
-
-            // Starting x-coordinate for the row as in index.
+        // Iterate each damaged row in screen space.
+        for (y, row_damage) in spans.iter().enumerate().take(height) {
             let row_start = y * width;
 
+            // Borrow the aligned rows from each frame.
             let back_row = &back.data[row_start..row_start + width];
             let front_row = &mut front.data[row_start..row_start + width];
 
-            // Starting and ending index for the span.
-            let mut x = span.start.min(width - 1);
-            let end = span.end.min(width - 1) + 1;
+            // Compare only the damaged spans for this row.
+            for span in row_damage.spans() {
+                let mut x = span.start.min(width);
+                let end = span.end.min(width);
 
-            while x < end {
-                if front_row[x] == back_row[x] {
-                    // Don't modify matching cells between front and back buffer.
-                    x += 1;
-                    continue;
-                }
-
-                // Cell does not match, get the length of the non-matching span.
-                let run_start = x;
-                while x < end && front_row[x] != back_row[x] {
-                    x += 1;
-                }
-
-                // Move the cursor to the start before writing changes.
-                out.push_move_sequence(run_start, y);
-
-                let mut dx = run_start;
-                while dx < x {
-                    let style = back_row[dx].style;
-                    if style != current_style {
-                        // Update the style.
-                        out.push_style(current_style, style);
-                        current_style = style;
+                // Walk the damaged span from left to right.
+                while x < end {
+                    // Skip cells that are already identical.
+                    if front_row[x] == back_row[x] {
+                        x += 1;
+                        continue;
                     }
 
-                    // Mark the current style and collect the span that remains the same.
-                    let style_start = dx;
-                    while dx < x && back_row[dx].style == style {
-                        dx += 1;
+                    // Find a contiguous run of differing cells.
+                    let run_start = x;
+                    while x < end && front_row[x] != back_row[x] {
+                        x += 1;
                     }
 
-                    // Push the span of same style & glyph into the write buffer.
-                    for i in style_start..dx {
-                        let cell = back_row[i];
-                        out.push_rune(&cell.rune);
-                        front_row[i] = cell; // Replicate to front buffer.
+                    // Move the cursor once to the start of the changed run.
+                    out.push_move_sequence(run_start, y);
+
+                    let mut dx = run_start;
+                    while dx < x {
+                        let style = back_row[dx].style;
+
+                        // Emit a style sequence only when the style changes.
+                        if style != current_style {
+                            out.push_style(current_style, style);
+                            current_style = style;
+                        }
+
+                        // Group adjacent cells that share the same style.
+                        let style_start = dx;
+                        while dx < x && back_row[dx].style == style {
+                            dx += 1;
+                        }
+
+                        // Write the glyphs for this style run and mirror them into
+                        // `front` so the front buffer stays in sync with the terminal.
+                        for i in style_start..dx {
+                            let cell = back_row[i];
+                            out.push_rune(&cell.rune);
+                            front_row[i] = cell;
+                        }
                     }
                 }
             }

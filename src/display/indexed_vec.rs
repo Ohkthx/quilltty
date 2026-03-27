@@ -1,3 +1,5 @@
+//! File: src/display/indexed_vec.rs
+
 #![allow(dead_code)]
 
 use std::{collections::HashMap, hash::Hash};

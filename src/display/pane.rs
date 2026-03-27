@@ -2,7 +2,7 @@
 
 use crate::{
     Canvas, Color, Glyph, Rect, Style,
-    display::{Point, backend::DamagedSpan, glyph::BorderKind, indexed_vec::Keyed},
+    display::{Point, backend::DamagedRow, glyph::BorderKind, indexed_vec::Keyed},
 };
 
 /// Unique identifier for individual panes.
@@ -140,7 +140,7 @@ pub struct Pane {
 
     pub(crate) title: Option<String>, // Optional title for the `Pane`.
     pub(crate) data: Vec<Glyph>,      // Render information owned by the `Pane`.
-    pub(crate) damaged: Vec<DamagedSpan>, // Per-row spans used to track damage.
+    pub(crate) damaged: Vec<DamagedRow>, // Per-row spans used to track damage.
 }
 
 impl Pane {
@@ -235,7 +235,7 @@ impl Pane {
     pub(crate) fn with_data(mut self, data: Vec<Glyph>) -> Self {
         debug_assert_eq!(data.len(), self.rect.width * self.rect.height);
         self.data = data;
-        self.damaged = vec![DamagedSpan::default(); self.rect.height];
+        self.damaged = vec![DamagedRow::default(); self.rect.height];
         self.mark_all_damaged();
         self
     }
@@ -486,7 +486,7 @@ impl Pane {
         }
 
         self.data = new_data;
-        self.damaged = vec![DamagedSpan::default(); height];
+        self.damaged = vec![DamagedRow::default(); height];
 
         self.draw_decorations();
         self.mark_all_damaged();
@@ -516,7 +516,7 @@ impl Pane {
             }
 
             if changed {
-                self.damaged[pane_y].mark_range(offset.x, offset.x + content.width - 1);
+                self.damaged[pane_y].mark_range(offset.x, offset.x + content.width);
             }
         }
     }
@@ -534,11 +534,11 @@ impl Pane {
         }
 
         if self.damaged.len() != height {
-            self.damaged.resize(height, DamagedSpan::default());
+            self.damaged.resize(height, DamagedRow::default());
         }
 
-        for span in &mut self.damaged {
-            span.mark_range(0, width - 1);
+        for row in &mut self.damaged {
+            row.mark_range(0, width);
         }
     }
 
