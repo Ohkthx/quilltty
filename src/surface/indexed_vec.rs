@@ -1,4 +1,4 @@
-//! File: src/display/indexed_vec.rs
+//! File: src/surface/indexed_vec.rs
 
 #![allow(dead_code)]
 

@@ -1,4 +1,4 @@
-//! File: src/display/mod.rs
+//! File: src/surface/mod.rs
 
 mod backend;
 mod canvas;

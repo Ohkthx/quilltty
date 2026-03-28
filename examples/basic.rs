@@ -1,3 +1,5 @@
+//! File: examples/basic.rs
+
 use std::{
     io::{self, Write},
     thread,
@@ -6,8 +8,10 @@ use std::{
 
 use crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEventKind};
 use quilltty::{
-    BorderKind, Canvas, Color, Compositor, Glyph, Input, PaneElement, PaneHit, PaneId, Point, Rect,
-    Renderer, Style, Terminal,
+    prelude::*,
+    render::{Compositor, Renderer},
+    style::Glyph,
+    ui::{PaneElement, PaneHit},
 };
 
 enum DragMode {

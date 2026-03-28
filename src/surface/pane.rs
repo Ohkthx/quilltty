@@ -1,8 +1,10 @@
-//! File: src/display/pane.rs
+//! File: src/surface/pane.rs
 
 use crate::{
-    Canvas, Color, Glyph, Rect, Style,
-    display::{Point, backend::DamagedRow, glyph::BorderKind, indexed_vec::Keyed},
+    Canvas,
+    geom::{Point, Rect},
+    style::{BorderKind, Color, Glyph, Style},
+    surface::{backend::DamagedRow, indexed_vec::Keyed},
 };
 
 /// Unique identifier for individual panes.
@@ -156,8 +158,8 @@ impl Pane {
 
             focused: false,
             visible: true,
-            movable: true,
-            resizable: true,
+            movable: false,
+            resizable: false,
 
             border: None,
             border_style: Style::default().with_fg(Color::White),

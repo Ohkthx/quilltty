@@ -1,4 +1,4 @@
-//! File: src/display/geometry.rs
+//! File: src/surface/geometry.rs
 
 /// A 2D XY-coordinate within a space.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

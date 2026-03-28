@@ -1,11 +1,13 @@
-//! File: src/display/canvas.rs
+//! File: src/surface/canvas.rs
 
-use crate::display::Point;
-use crate::display::backend::DamagedRow;
-use crate::display::glyph::BorderKind;
-use crate::display::indexed_vec::IndexedVec;
-use crate::display::pane::PaneElement;
-use crate::{Color, Compositor, Glyph, Pane, PaneBuilder, PaneId, Rect, Renderer, Style};
+use crate::{
+    Pane, PaneBuilder, PaneId,
+    geom::{Point, Rect},
+    render::{Compositor, Renderer},
+    style::{BorderKind, Color, Glyph, Style},
+    surface::{backend::DamagedRow, indexed_vec::IndexedVec},
+    ui::PaneElement,
+};
 
 /// `Pane` and `Element` for hit detection.
 pub struct PaneHit {
@@ -182,6 +184,11 @@ impl Canvas {
         }
 
         None
+    }
+
+    /// Returns the `PaneId` for the pane that is currently focused.
+    pub fn focus_id(&self) -> PaneId {
+        self.focus
     }
 
     /// Sets the `PaneId` to be the current focus.

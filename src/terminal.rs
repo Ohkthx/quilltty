@@ -9,7 +9,7 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
 
-use crate::display::Point;
+use crate::geom::Point;
 
 /// Enables / Disables the terminal state including mouse capturing.
 pub struct Terminal {

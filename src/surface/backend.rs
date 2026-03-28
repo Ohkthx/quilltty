@@ -1,20 +1,22 @@
-//! File: src/display/backend.rs
+//! File: src/surface/backend.rs
 //!
 //! Composes damaged pane data into `Frames` that are compared by the `Renderer`.
 
 use std::io::{self, Write};
 
 use crate::{
-    Glyph, Rune, Style,
-    display::{Pane, Point},
+    Pane,
+    geom::Point,
+    style::{Glyph, Rune, Style},
 };
 
 /// A span of damaged data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Span {
-    pub(crate) start: usize,
     /// Start of the span.
-    pub(crate) end: usize, // End of the span (exclusive).
+    pub(crate) start: usize,
+    /// End of the span (exclusive).
+    pub(crate) end: usize,
 }
 
 impl Span {

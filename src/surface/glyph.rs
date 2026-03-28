@@ -1,4 +1,4 @@
-//! File: src/display/glyph.rs
+//! File: src/surface/glyph.rs
 
 #![allow(dead_code)]
 
