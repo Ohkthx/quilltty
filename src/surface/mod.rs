@@ -4,7 +4,7 @@ mod backend;
 mod canvas;
 mod geometry;
 mod glyph;
-mod indexed_vec;
+pub(crate) mod indexed_vec;
 mod pane;
 
 pub use backend::{Compositor, Renderer};

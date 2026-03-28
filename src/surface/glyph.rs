@@ -172,14 +172,27 @@ impl Style {
     // bits 6..9   fg (4 bits)
     // bits 10..13 bg (4 bits)
 
+    // bits 0..5   flags
+    // bits 6..7   special
+    // bits 8..11  fg (4 bits)
+    // bits 12..15 bg (4 bits)
+
     pub const FLAG_BOLD: u16 = 1 << 0;
     pub const FLAG_DIM: u16 = 1 << 1;
     pub const FLAG_ITALIC: u16 = 1 << 2;
     pub const FLAG_UNDERLINE: u16 = 1 << 3;
     pub const FLAG_BLINK: u16 = 1 << 4;
     pub const FLAG_STRIKE: u16 = 1 << 5;
+    pub const FLAG_INVERSE: u16 = 1 << 14;
 
-    const FLAG_MASK: u16 = 0x3F;
+    const FLAG_MASK: u16 = Self::FLAG_BOLD
+        | Self::FLAG_DIM
+        | Self::FLAG_ITALIC
+        | Self::FLAG_UNDERLINE
+        | Self::FLAG_BLINK
+        | Self::FLAG_STRIKE
+        | Self::FLAG_INVERSE;
+
     const FG_SHIFT: u16 = 6;
     const BG_SHIFT: u16 = 10;
 
@@ -252,6 +265,13 @@ impl Style {
     #[inline]
     pub fn strike(mut self) -> Self {
         self.0 |= Self::FLAG_STRIKE;
+        self
+    }
+
+    /// Style will have a strikethrough.
+    #[inline]
+    pub fn inverse(mut self) -> Self {
+        self.0 |= Self::FLAG_INVERSE;
         self
     }
 

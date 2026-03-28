@@ -15,10 +15,12 @@ pub struct PaneHit {
     pub pane_id: PaneId,
     /// Element that was hit.
     pub element: PaneElement,
-    /// Local `Point`.
-    pub local: Point,
     /// Global `Point`
     pub global: Point,
+    /// Local `Point`.
+    pub local: Point,
+    /// Content-local, only for content hits
+    pub content_local: Option<Point>,
 }
 
 /// Manages panes, their ordering, creation, and deletion.
@@ -28,7 +30,7 @@ pub struct Canvas {
     pub(crate) damaged: Vec<DamagedRow>,        // Damaged spans for each canvas row.
     pub(crate) freed_ids: Vec<PaneId>,          // Reusable PaneIds.
     pub(crate) cursor: Option<Point>,           // Cursor position on the Canvas.
-    pub(crate) focus: PaneId,                   // Currently focused Pane.
+    pub(crate) focused: PaneId,                 // Currently focused Pane.
 }
 
 impl Canvas {
@@ -63,7 +65,7 @@ impl Canvas {
             damaged: vec![DamagedRow::default(); height],
             freed_ids: Vec::new(),
             cursor: None,
-            focus: Self::ROOT_ID,
+            focused: Self::ROOT_ID,
         }
     }
 
@@ -157,16 +159,30 @@ impl Canvas {
     pub fn pane_at(&self, position: Point) -> Option<PaneHit> {
         for pane in self.panes.iter().rev() {
             if !pane.visible || !pane.rect.contains_point(position) {
-                continue; // Ignore these panes.
+                continue;
             }
 
-            // Extract the hit element.
             let local = position.saturating_sub(pane.rect.origin());
+
+            // Extract the hit element.
             if let Some(element) = pane.element_at(local) {
+                let content_local = if element == PaneElement::Content {
+                    Some(
+                        local.saturating_sub(
+                            pane.content_rect()
+                                .origin()
+                                .saturating_sub(pane.rect.origin()),
+                        ),
+                    )
+                } else {
+                    None
+                };
+
                 return Some(PaneHit {
                     pane_id: pane.id,
                     element,
                     local,
+                    content_local,
                     global: position,
                 });
             }
@@ -175,11 +191,28 @@ impl Canvas {
         // Default to root.
         if self.root.rect().contains_point(position) {
             let local = position.saturating_sub(self.root.rect.origin());
-            return self.root.element_at(local).map(|element| PaneHit {
-                pane_id: Self::ROOT_ID,
-                element,
-                local,
-                global: position,
+
+            return self.root.element_at(local).map(|element| {
+                let content_local = if element == PaneElement::Content {
+                    Some(
+                        local.saturating_sub(
+                            self.root
+                                .content_rect()
+                                .origin()
+                                .saturating_sub(self.root.rect.origin()),
+                        ),
+                    )
+                } else {
+                    None
+                };
+
+                PaneHit {
+                    pane_id: Self::ROOT_ID,
+                    element,
+                    local,
+                    content_local,
+                    global: position,
+                }
             });
         }
 
@@ -187,20 +220,20 @@ impl Canvas {
     }
 
     /// Returns the `PaneId` for the pane that is currently focused.
-    pub fn focus_id(&self) -> PaneId {
-        self.focus
+    pub fn focused(&self) -> PaneId {
+        self.focused
     }
 
     /// Sets the `PaneId` to be the current focus.
-    pub fn focus_pane(&mut self, pane_id: PaneId) -> bool {
-        if pane_id == self.focus {
+    pub fn focus(&mut self, pane_id: PaneId) -> bool {
+        if pane_id == self.focused {
             return true; // Nothing to do.
         } else if self.pane(pane_id).is_none() {
             return false; // Pane not found.
         }
 
-        let old_id = self.focus;
-        self.focus = pane_id;
+        let old_id = self.focused;
+        self.focused = pane_id;
 
         if let Some(old) = self.pane_mut(old_id) {
             old.set_focus(false);
@@ -210,6 +243,7 @@ impl Canvas {
             new.set_focus(true);
         }
 
+        self.cursor = None;
         true
     }
 

@@ -74,7 +74,7 @@ fn mouse_event(
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             if let Some(hit) = last_hit {
-                canvas.focus_pane(hit.pane_id);
+                canvas.focus(hit.pane_id);
 
                 *drag = match hit.element {
                     PaneElement::Title | PaneElement::Border => Some(DragState {
@@ -178,7 +178,7 @@ fn main() -> io::Result<()> {
         "Press 's' to toggle hidden pane.",
         root_style,
     );
-    canvas.set_pane_title(Canvas::ROOT_ID, Some("quilltty - root".into()));
+    canvas.set_pane_title(Canvas::ROOT_ID, Some("quilltty - examples/basic".into()));
 
     // Pane content.
     let pane = canvas.pane_mut(pane_id).expect("pane should exist");

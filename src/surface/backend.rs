@@ -393,7 +393,6 @@ struct AnsiBuffer(Vec<u8>);
 
 impl AnsiBuffer {
     const CSI: &[u8] = b"\x1b[";
-    const CSI_MOVE_BASE_COST: usize = 4;
     const RESET_STYLE: &[u8] = b"\x1b[0m";
     const HIDE_CURSOR: &[u8] = b"\x1b[?25l";
     const SHOW_CURSOR: &[u8] = b"\x1b[?25h";
@@ -501,6 +500,10 @@ impl AnsiBuffer {
             emit_num!(25);
         }
 
+        if (prev_flags & Style::FLAG_INVERSE != 0) && (new_flags & Style::FLAG_INVERSE == 0) {
+            emit_num!(27);
+        }
+
         if (prev_flags & Style::FLAG_STRIKE != 0) && (new_flags & Style::FLAG_STRIKE == 0) {
             emit_num!(29);
         }
@@ -525,6 +528,10 @@ impl AnsiBuffer {
 
         if (new_flags & Style::FLAG_BLINK != 0) && (prev_flags & Style::FLAG_BLINK == 0) {
             emit_num!(5);
+        }
+
+        if (new_flags & Style::FLAG_INVERSE != 0) && (prev_flags & Style::FLAG_INVERSE == 0) {
+            emit_num!(7);
         }
 
         if (new_flags & Style::FLAG_STRIKE != 0) && (prev_flags & Style::FLAG_STRIKE == 0) {
