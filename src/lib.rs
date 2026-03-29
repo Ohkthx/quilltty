@@ -5,10 +5,16 @@ pub mod prelude {
     pub use crate::style::{BorderKind, Color, Style};
     pub use crate::terminal::{Input, Terminal};
     pub use crate::ui::{
-        ButtonWidget, Canvas, InputWidget, Pane, PaneBuilder, PaneId, Widget, WidgetBuilder,
-        WidgetHit, WidgetId, WidgetStore,
+        ButtonWidget, Canvas, CheckboxWidget, InputWidget, Pane, PaneBuilder, PaneDragKind, PaneId,
+        TextWidget, Ui, UiEvent, Widget, WidgetBuilder, WidgetHit, WidgetId, WidgetLayout,
+        WidgetStore,
     };
 }
+
+pub use ui::{
+    ButtonWidget, Canvas, CheckboxWidget, InputWidget, Pane, PaneBuilder, PaneDragKind, PaneId,
+    TextWidget, Ui, UiEvent, Widget, WidgetBuilder, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
+};
 
 mod surface;
 pub mod terminal;
@@ -27,7 +33,3 @@ pub mod render {
 }
 
 pub use terminal::{Input, Terminal};
-pub use ui::{
-    ButtonWidget, Canvas, InputWidget, Pane, PaneBuilder, PaneId, Widget, WidgetBuilder, WidgetHit,
-    WidgetId, WidgetStore,
-};

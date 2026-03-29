@@ -10,6 +10,7 @@ use crate::{
 };
 
 /// `Pane` and `Element` for hit detection.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PaneHit {
     /// Unique identifier for the `Pane`.
     pub pane_id: PaneId,
@@ -225,11 +226,9 @@ impl Canvas {
     }
 
     /// Sets the `PaneId` to be the current focus.
-    pub fn focus(&mut self, pane_id: PaneId) -> bool {
-        if pane_id == self.focused {
-            return true; // Nothing to do.
-        } else if self.pane(pane_id).is_none() {
-            return false; // Pane not found.
+    pub fn focus(&mut self, pane_id: PaneId) {
+        if pane_id == self.focused || self.pane(pane_id).is_none() {
+            return;
         }
 
         let old_id = self.focused;
@@ -244,7 +243,6 @@ impl Canvas {
         }
 
         self.cursor = None;
-        true
     }
 
     /// Resizes the `Pane`, extending or shrinking from the resize point.
@@ -415,6 +413,11 @@ impl Canvas {
         self.clear_damage();
 
         Ok(())
+    }
+
+    /// All `PaneIds` belonging to the `Canvas`.
+    pub fn pane_ids(&self) -> impl DoubleEndedIterator<Item = PaneId> + '_ {
+        self.panes.iter().map(|pane| pane.id())
     }
 
     /// Applies `f` to the pane identified by `pane_id` and returns its rectangle and

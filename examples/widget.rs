@@ -82,24 +82,24 @@ fn main() -> io::Result<()> {
     let input_widget = app
         .widgets
         .widget(text_pane)
-        .with_rect(
+        .with_layout(WidgetLayout::Fixed(
             Rect::default()
                 .with_origin((0usize, 0usize).into())
                 .width(text_rect.width / 2)
                 .height(1),
-        )
+        ))
         .with_widget(InputWidget::new(Some("New Title"), Some("type here...")))
         .build();
 
     let button_widget = app
         .widgets
         .widget(text_pane)
-        .with_rect(
+        .with_layout(WidgetLayout::Fixed(
             Rect::default()
                 .with_origin((0usize, 1usize).into())
                 .width(13)
                 .height(1),
-        )
+        ))
         .with_widget(
             ButtonWidget::new(Some("[Reset Title]"))
                 .with_hover_style(Style::new().with_fg(Color::Red).bold())
@@ -129,7 +129,7 @@ fn main() -> io::Result<()> {
                                 && hit.element == PaneElement::Content
                                 && let Some(content_local) = hit.content_local
                             {
-                                app.widgets.hover(hit.pane_id, content_local);
+                                app.widgets.hover(&canvas, hit.pane_id, content_local);
                             } else {
                                 app.widgets.clear_hover();
                             }
@@ -142,7 +142,10 @@ fn main() -> io::Result<()> {
 
                                 if hit.element == PaneElement::Content
                                     && let Some(content_local) = hit.content_local
-                                    && app.widgets.mouse_down(hit.pane_id, content_local).is_none()
+                                    && app
+                                        .widgets
+                                        .mouse_down(&canvas, hit.pane_id, content_local)
+                                        .is_none()
                                 {
                                     app.widgets.focus(None);
                                     app.widgets.clear_hover();
@@ -162,7 +165,7 @@ fn main() -> io::Result<()> {
                                 && let Some(content_local) = hit.content_local
                             {
                                 if let Some(widget_hit) =
-                                    app.widgets.mouse_up(hit.pane_id, content_local)
+                                    app.widgets.mouse_up(&canvas, hit.pane_id, content_local)
                                     && widget_hit.widget_id == button_widget
                                 {
                                     submit_input(&mut app, &mut canvas, text_pane, input_widget);

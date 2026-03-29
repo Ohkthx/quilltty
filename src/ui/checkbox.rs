@@ -1,4 +1,4 @@
-//! File: src/ui/button.rs
+//! File: src/ui/checkbox.rs
 
 use crate::{
     geom::{Point, Rect},
@@ -8,15 +8,17 @@ use crate::{
 };
 
 /// A clickable widget.
-pub struct ButtonWidget {
+pub struct CheckboxWidget {
     pub(crate) state: WidgetState,     // Current state.
     pub interaction: InteractionStyle, // Style for interaction.
-    label: Option<String>,             // Text to render on the button.
+    label: Option<String>,             // Text to render next to the checkbox.
+    label_left: bool,                  // If the label is left or right of box.
+    checked: bool,                     // Marked or not.
 }
 
-impl ButtonWidget {
-    /// Creates a new `ButtonWidget`.
-    pub fn new<L>(label: Option<L>) -> Self
+impl CheckboxWidget {
+    /// Creates a new `CheckboxWidget`.
+    pub fn new<L>(label: Option<L>, label_left: bool, checked: bool) -> Self
     where
         L: Into<String>,
     {
@@ -24,6 +26,8 @@ impl ButtonWidget {
             state: WidgetState::default(),
             interaction: InteractionStyle::default(),
             label: label.map(Into::into),
+            label_left,
+            checked,
         }
     }
 
@@ -51,7 +55,7 @@ impl ButtonWidget {
         self
     }
 
-    /// Renders the button onto its parent `Pane`.
+    /// Renders the checkbox onto its parent `Pane`.
     pub(crate) fn render(&mut self, pane: &mut Pane, rect: Rect) {
         if !self.state.damaged {
             return;
@@ -65,7 +69,17 @@ impl ButtonWidget {
         let style = self.interaction.style(&self.state);
         self.clear_content(pane, rect, style);
 
-        let label = self.label.as_deref().unwrap_or("");
+        let checked = if self.checked { "x" } else { " " };
+        let label = if let Some(label) = self.label.as_deref() {
+            if self.label_left {
+                format!("{label}: [{checked}]")
+            } else {
+                format!("[{checked}]: {label}")
+            }
+        } else {
+            format!("[{checked}]")
+        };
+
         for (i, ch) in label.chars().take(rect.width).enumerate() {
             pane.set(
                 Point::new(rect.x + i, rect.y),
@@ -76,6 +90,7 @@ impl ButtonWidget {
         self.state.damaged = false;
     }
 
+    /// Nullifies the drawn text.
     fn clear_content(&self, pane: &mut Pane, rect: Rect, style: Style) {
         for y in 0..rect.height {
             for x in 0..rect.width {
@@ -85,5 +100,25 @@ impl ButtonWidget {
                 );
             }
         }
+    }
+
+    /// Gets the status of the checkbox.
+    pub fn checked(&self) -> bool {
+        self.checked
+    }
+
+    /// Sets the value of the checkbox.
+    pub fn set_checked(&mut self, value: bool) {
+        if self.checked != value {
+            self.checked = value;
+            self.state.damaged = true;
+        }
+    }
+
+    /// Toggles the status of the checkbox.
+    pub fn toggle(&mut self) -> bool {
+        self.checked = !self.checked;
+        self.state.damaged = true;
+        self.checked
     }
 }

@@ -171,11 +171,7 @@ impl Style {
     // bits 0..5   flags
     // bits 6..9   fg (4 bits)
     // bits 10..13 bg (4 bits)
-
-    // bits 0..5   flags
-    // bits 6..7   special
-    // bits 8..11  fg (4 bits)
-    // bits 12..15 bg (4 bits)
+    // bit 14      inverse
 
     pub const FLAG_BOLD: u16 = 1 << 0;
     pub const FLAG_DIM: u16 = 1 << 1;

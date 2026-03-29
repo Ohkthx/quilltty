@@ -4,17 +4,19 @@ use crate::{
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::widget::WidgetState,
+    ui::{InteractionStyle, widget::WidgetState},
 };
 
 /// A widget that allows text entry.
 pub struct InputWidget {
-    label: Option<String>,         // Label to display.
-    style: Style,                  // Style used to render the widget.
-    placeholder: Option<String>,   // Placeholder text when empty.
-    buffer: String,                // Stores the text already entered.
-    cursor: usize,                 // Cursor position in bytes.
-    pub(crate) state: WidgetState, // Current state.
+    pub(crate) state: WidgetState,     // Current state.
+    pub interaction: InteractionStyle, // Style for interaction.
+    label: Option<String>,             // Label to display.
+    label_style: Style,                // Style used to render the label of the widget.
+    style: Style,                      // Style used to render the widget.
+    placeholder: Option<String>,       // Placeholder text when empty.
+    buffer: String,                    // Stores the text already entered.
+    cursor: usize,                     // Cursor position in bytes.
 }
 
 impl InputWidget {
@@ -25,13 +27,23 @@ impl InputWidget {
         P: Into<String>,
     {
         Self {
+            state: WidgetState::default(),
+            interaction: InteractionStyle::default(),
             label: label.map(Into::into),
+            label_style: Style::default(),
+            style: Style::new().underline(),
             placeholder: placeholder.map(Into::into),
             buffer: String::new(),
             cursor: 0,
-            style: Style::new().underline(),
-            state: WidgetState::default(),
         }
+    }
+
+    /// Sets the render style for this widget.
+    #[must_use]
+    pub fn with_label_style(mut self, style: Style) -> Self {
+        self.label_style = style;
+        self.state.damaged = true;
+        self
     }
 
     /// Sets the render style for this widget.
@@ -137,7 +149,7 @@ impl InputWidget {
         let Rect { x, y, width, .. } = rect;
 
         if let Some(label) = self.label.as_deref() {
-            self.draw_text(pane, Point::new(x, y), label, Style::new(), width);
+            self.draw_text(pane, Point::new(x, y), label, true, width);
         }
 
         let input_row = usize::from(self.label.is_some());
@@ -147,7 +159,7 @@ impl InputWidget {
             &self.buffer
         };
 
-        self.draw_text(pane, Point::new(x, y + input_row), text, self.style, width);
+        self.draw_text(pane, Point::new(x, y + input_row), text, false, width);
     }
 
     /// Renders a single-line `InputWidget`.
@@ -162,7 +174,7 @@ impl InputWidget {
 
         if let Some(label) = self.label.as_deref() {
             let prefix = format!("{label}: ");
-            x += self.draw_text(pane, Point::new(ox + x, oy), &prefix, Style::new(), width);
+            x += self.draw_text(pane, Point::new(ox + x, oy), &prefix, true, width);
         }
 
         if x >= width {
@@ -179,7 +191,7 @@ impl InputWidget {
             pane,
             Point::new(ox + x, oy),
             text,
-            self.style,
+            false,
             width.saturating_sub(x),
         );
     }
@@ -247,12 +259,19 @@ impl InputWidget {
         pane: &mut Pane,
         origin: Point,
         text: &str,
-        style: Style,
-        max_width: usize,
+        label: bool,
+        width: usize,
     ) -> usize {
         let mut written = 0;
 
-        for (i, ch) in text.chars().take(max_width).enumerate() {
+        let base_style = if label { self.label_style } else { self.style };
+        let style = if base_style != Style::default() {
+            base_style
+        } else {
+            self.interaction.style(&self.state)
+        };
+
+        for (i, ch) in text.chars().take(width).enumerate() {
             pane.set(
                 Point::new(origin.x + i, origin.y),
                 Glyph::from(ch).with_style(style),
