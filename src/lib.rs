@@ -5,15 +5,16 @@ pub mod prelude {
     pub use crate::style::{BorderKind, Color, Style};
     pub use crate::terminal::{Input, Terminal};
     pub use crate::ui::{
-        ButtonWidget, Canvas, CheckboxWidget, InputWidget, Pane, PaneBuilder, PaneDragKind, PaneId,
-        TextWidget, Ui, UiEvent, Widget, WidgetBuilder, WidgetHit, WidgetId, WidgetLayout,
-        WidgetStore,
+        ButtonWidget, Canvas, CheckboxWidget, HasInteractionStyle, InputWidget, LogWidget, Pane,
+        PaneBuilder, PaneDragKind, PaneId, ProgressWidget, SliderWidget, TextWidget, Ui, UiEvent,
+        Widget, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
     };
 }
 
 pub use ui::{
-    ButtonWidget, Canvas, CheckboxWidget, InputWidget, Pane, PaneBuilder, PaneDragKind, PaneId,
-    TextWidget, Ui, UiEvent, Widget, WidgetBuilder, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
+    ButtonWidget, Canvas, CheckboxWidget, InputWidget, LogWidget, Pane, PaneBuilder, PaneDragKind,
+    PaneId, ProgressWidget, SliderWidget, TextWidget, Ui, UiEvent, Widget, WidgetHit, WidgetId,
+    WidgetLayout, WidgetStore,
 };
 
 mod surface;

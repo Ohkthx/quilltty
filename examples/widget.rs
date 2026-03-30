@@ -23,20 +23,11 @@ impl AppData {
             widgets: WidgetStore::new(),
         }
     }
-
-    // Edit a focused input widget.
-    fn input_mut<R>(
-        &mut self,
-        widget_id: WidgetId,
-        f: impl FnOnce(&mut InputWidget) -> R,
-    ) -> Option<R> {
-        self.widgets.edit(widget_id, |w| w.as_input_mut().map(f))?
-    }
 }
 
 // Submit input and show the result in the pane title.
 fn submit_input(app: &mut AppData, canvas: &mut Canvas, pane_id: PaneId, input_widget: WidgetId) {
-    if let Some(submitted) = app.input_mut(input_widget, |input| input.submit()) {
+    if let Some(submitted) = app.widgets.edit_input(input_widget, |w| w.submit()) {
         let title = if submitted.is_empty() {
             "Text Box".to_string()
         } else {
@@ -79,33 +70,30 @@ fn main() -> io::Result<()> {
 
     let mut app = AppData::new();
 
-    let input_widget = app
-        .widgets
-        .widget(text_pane)
-        .with_layout(WidgetLayout::Fixed(
+    let input_widget = app.widgets.add_widget(
+        text_pane,
+        InputWidget::new(Some("New Title"), Some("type here...")).into(),
+        WidgetLayout::Fixed(
             Rect::default()
                 .with_origin((0usize, 0usize).into())
                 .width(text_rect.width / 2)
                 .height(1),
-        ))
-        .with_widget(InputWidget::new(Some("New Title"), Some("type here...")))
-        .build();
+        ),
+    );
 
-    let button_widget = app
-        .widgets
-        .widget(text_pane)
-        .with_layout(WidgetLayout::Fixed(
+    let button_widget = app.widgets.add_widget(
+        text_pane,
+        ButtonWidget::new(Some("[Reset Title]"))
+            .with_hover_style(Style::new().with_fg(Color::Red).bold())
+            .with_pressed_style(Style::new().inverse())
+            .into(),
+        WidgetLayout::Fixed(
             Rect::default()
                 .with_origin((0usize, 1usize).into())
                 .width(13)
                 .height(1),
-        ))
-        .with_widget(
-            ButtonWidget::new(Some("[Reset Title]"))
-                .with_hover_style(Style::new().with_fg(Color::Red).bold())
-                .with_pressed_style(Style::new().inverse()),
-        )
-        .build();
+        ),
+    );
 
     app.widgets.focus(Some(input_widget));
     canvas.focus(text_pane);
@@ -194,20 +182,20 @@ fn main() -> io::Result<()> {
                     if let Some(widget_id) = focused_widget {
                         match key_event.code {
                             KeyCode::Char(ch) => {
-                                app.input_mut(widget_id, |input| input.insert_char(ch));
+                                app.widgets.edit_input(widget_id, |w| w.insert_char(ch));
                             }
                             KeyCode::Backspace => {
-                                app.input_mut(widget_id, |input| input.backspace());
+                                app.widgets.edit_input(widget_id, |w| w.backspace());
                             }
                             // Enter submits the input.
                             KeyCode::Enter if widget_id == input_widget => {
                                 submit_input(&mut app, &mut canvas, text_pane, input_widget);
                             }
                             KeyCode::Left => {
-                                app.input_mut(widget_id, |input| input.move_left());
+                                app.widgets.edit_input(widget_id, |w| w.move_left());
                             }
                             KeyCode::Right => {
-                                app.input_mut(widget_id, |input| input.move_right());
+                                app.widgets.edit_input(widget_id, |w| w.move_right());
                             }
                             _ => {}
                         }

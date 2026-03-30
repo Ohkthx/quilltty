@@ -4,7 +4,11 @@ use crate::{
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::{InteractionStyle, widget::WidgetState},
+    ui::{
+        InteractionStyle, WidgetAction,
+        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
+        widget::WidgetState,
+    },
 };
 
 /// A clickable widget.
@@ -29,30 +33,6 @@ impl CheckboxWidget {
             label_left,
             checked,
         }
-    }
-
-    /// Sets the hover style.
-    #[must_use]
-    pub fn with_hover_style(mut self, style: Style) -> Self {
-        self.interaction.hover = style;
-        self.state.damaged = true;
-        self
-    }
-
-    /// Sets the pressed style.
-    #[must_use]
-    pub fn with_pressed_style(mut self, style: Style) -> Self {
-        self.interaction.pressed = style;
-        self.state.damaged = true;
-        self
-    }
-
-    /// Sets the focus style.
-    #[must_use]
-    pub fn with_focus_style(mut self, style: Style) -> Self {
-        self.interaction.focused = style;
-        self.state.damaged = true;
-        self
     }
 
     /// Renders the checkbox onto its parent `Pane`.
@@ -120,5 +100,39 @@ impl CheckboxWidget {
         self.checked = !self.checked;
         self.state.damaged = true;
         self.checked
+    }
+}
+
+impl HasWidgetState for CheckboxWidget {
+    fn state(&self) -> &WidgetState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut WidgetState {
+        &mut self.state
+    }
+}
+
+impl HasInteractionStyle for CheckboxWidget {
+    fn interaction(&self) -> &InteractionStyle {
+        &self.interaction
+    }
+
+    fn interaction_mut(&mut self) -> &mut InteractionStyle {
+        &mut self.interaction
+    }
+}
+
+impl WidgetBehavior for CheckboxWidget {
+    fn activate_action(&mut self) -> WidgetAction {
+        WidgetAction::CheckboxChanged(self.toggle())
+    }
+
+    fn release_action(&mut self, focused: bool) -> WidgetAction {
+        if focused {
+            WidgetAction::CheckboxChanged(self.toggle())
+        } else {
+            WidgetAction::Released
+        }
     }
 }

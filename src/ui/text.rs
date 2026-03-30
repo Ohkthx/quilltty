@@ -4,14 +4,17 @@ use crate::{
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::widget::{InteractionStyle, WidgetState},
+    ui::{
+        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
+        widget::{InteractionStyle, WidgetState},
+    },
 };
 
 /// A styled run of text within a line.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct StyledSpan {
-    text: String,
-    style: Style,
+    pub(crate) text: String,
+    pub(crate) style: Style,
 }
 
 impl StyledSpan {
@@ -67,7 +70,7 @@ impl StyledSpan {
 /// A line of text composed of one or more styled spans.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StyledLine {
-    spans: Vec<StyledSpan>,
+    pub(crate) spans: Vec<StyledSpan>,
 }
 
 impl StyledLine {
@@ -156,30 +159,6 @@ impl TextWidget {
     /// Creates an empty text widget.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets the style used while the widget is hovered.
-    #[must_use]
-    pub fn with_hover_style(mut self, style: Style) -> Self {
-        self.interaction.hover = style;
-        self.state.damaged = true;
-        self
-    }
-
-    /// Sets the style used while the widget is pressed.
-    #[must_use]
-    pub fn with_pressed_style(mut self, style: Style) -> Self {
-        self.interaction.pressed = style;
-        self.state.damaged = true;
-        self
-    }
-
-    /// Sets the style used while the widget is focused.
-    #[must_use]
-    pub fn with_focus_style(mut self, style: Style) -> Self {
-        self.interaction.focused = style;
-        self.state.damaged = true;
-        self
     }
 
     /// Creates a text widget from the provided lines.
@@ -317,3 +296,25 @@ impl TextWidget {
         }
     }
 }
+
+impl HasWidgetState for TextWidget {
+    fn state(&self) -> &WidgetState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut WidgetState {
+        &mut self.state
+    }
+}
+
+impl HasInteractionStyle for TextWidget {
+    fn interaction(&self) -> &InteractionStyle {
+        &self.interaction
+    }
+
+    fn interaction_mut(&mut self) -> &mut InteractionStyle {
+        &mut self.interaction
+    }
+}
+
+impl WidgetBehavior for TextWidget {}

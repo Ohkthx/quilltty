@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::{
     Canvas, PaneId,
     geom::{Point, Rect},
+    prelude::*,
     surface::indexed_vec::{IndexedVec, Keyed},
     ui::Widget,
 };
@@ -30,6 +31,11 @@ pub enum WidgetLayout {
         top: usize,
         right: usize,
         bottom: usize,
+    },
+    Line {
+        left: usize,
+        top: usize,
+        right: usize,
     },
     Fill, // Reshapes as the parent changes, same as all 0 inset.
 }
@@ -57,6 +63,13 @@ impl WidgetLayout {
                 y: top,
                 width: content.width.saturating_sub(left + right),
                 height: content.height.saturating_sub(top + bottom),
+            },
+
+            WidgetLayout::Line { left, top, right } => Rect {
+                x: left,
+                y: top,
+                width: content.width.saturating_sub(left + right),
+                height: usize::from(top < content.height),
             },
         }
     }
@@ -94,7 +107,7 @@ impl Default for PaneWidgets {
 }
 
 /// Builds widgets and requires `.build()` to finalize insertion.
-pub struct WidgetBuilder<'a> {
+struct WidgetBuilder<'a> {
     store: &'a mut WidgetStore,   // Reference to the widget store.
     pane_id: PaneId,              // Identifier for the parent `Pane`.
     widget: Option<Widget>,       // Widget to insert.
@@ -114,21 +127,21 @@ impl<'a> WidgetBuilder<'a> {
 
     /// Assigns the widget to the builder.
     #[must_use]
-    pub fn with_widget(mut self, widget: impl Into<Widget>) -> Self {
+    fn with_widget(mut self, widget: impl Into<Widget>) -> Self {
         self.widget = Some(widget.into());
         self
     }
 
     /// Positioning must be local to the Panes content area.
     #[must_use]
-    pub fn with_layout(mut self, layout: WidgetLayout) -> Self {
+    fn with_layout(mut self, layout: WidgetLayout) -> Self {
         self.layout = Some(layout);
         self
     }
 
     /// Creates a new widget, assigning its parent as `PaneId`.
     #[must_use]
-    pub fn build(self) -> WidgetId {
+    fn build(self) -> WidgetId {
         let widget = self.widget.expect("Widget is required for WidgetBuilder.");
         let layout = self.layout.expect("Layout is required for WidgetBuilder.");
 
@@ -181,13 +194,16 @@ impl WidgetStore {
     }
 
     /// Returns a builder to create a new widget entry.
-    pub fn widget(&mut self, pane_id: PaneId) -> WidgetBuilder<'_> {
+    pub fn add_widget(
+        &mut self,
+        pane_id: PaneId,
+        widget: Widget,
+        layout: WidgetLayout,
+    ) -> WidgetId {
         WidgetBuilder::new(pane_id, self)
-    }
-
-    /// Backwards-compatible alias for `widget`.
-    pub fn new_widget(&mut self, pane_id: PaneId) -> WidgetBuilder<'_> {
-        self.widget(pane_id)
+            .with_widget(widget)
+            .with_layout(layout)
+            .build()
     }
 
     /// Renders all visible and enabled widgets into their parent panes.
@@ -360,6 +376,20 @@ impl WidgetStore {
         }
     }
 
+    /// Returns the currently pressed widget, if any.
+    pub fn pressed(&self) -> Option<WidgetId> {
+        self.pressed
+    }
+
+    /// Returns the current content-local rect for a widget.
+    pub fn widget_rect(&self, canvas: &Canvas, widget_id: WidgetId) -> Option<Rect> {
+        let pane_id = *self.index.get(&widget_id)?;
+        let widgets = self.by_pane.get(&pane_id)?;
+        let entry = widgets.entries.get(&widget_id)?;
+        let pane = canvas.pane(pane_id)?;
+        Some(entry.layout.as_local(&pane.content_rect()))
+    }
+
     /// Lookup the parent `PaneId` for the widget.
     pub fn pane_id_of(&self, widget_id: WidgetId) -> Option<PaneId> {
         self.index.get(&widget_id).copied()
@@ -403,4 +433,14 @@ impl WidgetStore {
             }
         }
     }
+
+    impl_widget_store_editors!(
+        edit_input    => Input(InputWidget),
+        edit_button   => Button(ButtonWidget),
+        edit_checkbox => Checkbox(CheckboxWidget),
+        edit_text     => Text(TextWidget),
+        edit_progress => Progress(ProgressWidget),
+        edit_slider   => Slider(SliderWidget),
+        edit_log      => Log(LogWidget),
+    );
 }

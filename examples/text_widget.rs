@@ -19,8 +19,7 @@ fn main() -> io::Result<()> {
     let mut ui = Ui::new(width, height, Some(BorderKind::Double));
 
     // Root instructions.
-    {
-        let root = ui.canvas_mut().root_mut();
+    ui.with_root_mut(|root| {
         root.write_str(
             Point::ZERO,
             "Click the text area to focus/click it.",
@@ -46,7 +45,7 @@ fn main() -> io::Result<()> {
             "Press 'q' or Esc to quit.",
             Style::new(),
         );
-    }
+    });
 
     ui.set_pane_title(
         Canvas::ROOT_ID,
@@ -59,7 +58,7 @@ fn main() -> io::Result<()> {
         .center_on(width / 2, height / 2);
 
     let text_pane = ui
-        .create_pane()
+        .add_pane()
         .title("TextWidget Demo")
         .border(Some(BorderKind::Rounded))
         .movable(true)
@@ -77,11 +76,7 @@ fn main() -> io::Result<()> {
     text.push("Because TextWidget has no cursor, focus is purely visual here.");
     text.push("Try moving or resizing the pane too.");
 
-    let text_widget = ui
-        .widget(text_pane)
-        .with_layout(WidgetLayout::Fill)
-        .with_widget(text)
-        .build();
+    let text_widget = ui.add_widget(text_pane, text.into(), WidgetLayout::Fill);
 
     ui.focus_pane(text_pane);
     ui.focus_widget(Some(text_widget));

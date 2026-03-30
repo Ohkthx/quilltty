@@ -4,7 +4,11 @@ use crate::{
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::{InteractionStyle, widget::WidgetState},
+    ui::{
+        InteractionStyle, WidgetAction,
+        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
+        widget::WidgetState,
+    },
 };
 
 /// A clickable widget.
@@ -25,30 +29,6 @@ impl ButtonWidget {
             interaction: InteractionStyle::default(),
             label: label.map(Into::into),
         }
-    }
-
-    /// Sets the hover style.
-    #[must_use]
-    pub fn with_hover_style(mut self, style: Style) -> Self {
-        self.interaction.hover = style;
-        self.state.damaged = true;
-        self
-    }
-
-    /// Sets the pressed style.
-    #[must_use]
-    pub fn with_pressed_style(mut self, style: Style) -> Self {
-        self.interaction.pressed = style;
-        self.state.damaged = true;
-        self
-    }
-
-    /// Sets the focus style.
-    #[must_use]
-    pub fn with_focus_style(mut self, style: Style) -> Self {
-        self.interaction.focused = style;
-        self.state.damaged = true;
-        self
     }
 
     /// Renders the button onto its parent `Pane`.
@@ -85,5 +65,31 @@ impl ButtonWidget {
                 );
             }
         }
+    }
+}
+
+impl HasWidgetState for ButtonWidget {
+    fn state(&self) -> &WidgetState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut WidgetState {
+        &mut self.state
+    }
+}
+
+impl HasInteractionStyle for ButtonWidget {
+    fn interaction(&self) -> &InteractionStyle {
+        &self.interaction
+    }
+
+    fn interaction_mut(&mut self) -> &mut InteractionStyle {
+        &mut self.interaction
+    }
+}
+
+impl WidgetBehavior for ButtonWidget {
+    fn activate_action(&mut self) -> WidgetAction {
+        WidgetAction::Clicked
     }
 }

@@ -1,10 +1,16 @@
 //! File: src/ui/input.rs
 
+use crossterm::event::KeyCode;
+
 use crate::{
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::{InteractionStyle, widget::WidgetState},
+    ui::{
+        InteractionStyle, WidgetAction,
+        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
+        widget::WidgetState,
+    },
 };
 
 /// A widget that allows text entry.
@@ -280,5 +286,47 @@ impl InputWidget {
         }
 
         written
+    }
+}
+
+impl HasWidgetState for InputWidget {
+    fn state(&self) -> &WidgetState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut WidgetState {
+        &mut self.state
+    }
+}
+
+impl HasInteractionStyle for InputWidget {
+    fn interaction(&self) -> &InteractionStyle {
+        &self.interaction
+    }
+
+    fn interaction_mut(&mut self) -> &mut InteractionStyle {
+        &mut self.interaction
+    }
+}
+
+impl WidgetBehavior for InputWidget {
+    fn cursor_pos(&self, pane: &Pane, rect: Rect) -> Option<Point> {
+        InputWidget::cursor_pos(self, pane, rect)
+    }
+
+    fn activate_action(&mut self) -> WidgetAction {
+        WidgetAction::InputSubmitted(self.submit())
+    }
+
+    fn key_action(&mut self, key: KeyCode) -> WidgetAction {
+        match key {
+            KeyCode::Char(ch) => self.insert_char(ch),
+            KeyCode::Backspace => self.backspace(),
+            KeyCode::Left => self.move_left(),
+            KeyCode::Right => self.move_right(),
+            _ => return WidgetAction::None,
+        }
+
+        WidgetAction::InputChanged
     }
 }
