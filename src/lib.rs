@@ -1,7 +1,7 @@
 //! File: src/lib.rs
 
 pub mod prelude {
-    pub use crate::geom::{Point, Rect};
+    pub use crate::geom::{Point, Rect, Size};
     pub use crate::style::{BorderKind, Color, Style};
     pub use crate::terminal::{Input, Terminal};
     pub use crate::ui::{
@@ -26,7 +26,7 @@ pub mod style {
 }
 
 pub mod geom {
-    pub use crate::surface::{Point, Rect};
+    pub use crate::surface::{Point, Rect, Size};
 }
 
 pub mod render {

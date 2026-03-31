@@ -7,6 +7,8 @@ use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKin
 use crate::{
     prelude::*,
     render::{Compositor, Renderer},
+    style::Glyph,
+    surface::HitTarget,
     ui::{PaneElement, PaneHit, WidgetAction},
 };
 
@@ -23,7 +25,7 @@ pub enum UiEvent {
     None, // No UI action occurred.
 
     // Generic Pane events.
-    PanePressed(PaneHit), // Mouse pressed pane content with no widget hit.
+    PanePressed { pane_id: PaneId, hit: PaneHit }, // Mouse pressed pane content with no widget hit.
     PaneDragStart { pane_id: PaneId, kind: PaneDragKind }, // Pane drag has started.
     PaneDragged { pane_id: PaneId, kind: PaneDragKind }, // Pane is actively being dragged.
     PaneReleased { pane_id: PaneId, kind: PaneDragKind }, // Pane drag has ended.
@@ -67,7 +69,7 @@ struct DragState {
 
 /// Coordinates pane rendering, widget state, and pointer-driven pane actions.
 pub struct Ui {
-    canvas: Canvas,          // Backing surface containing panes and root content.
+    canvas: Canvas,          // Backing surface containing panes.
     compositor: Compositor,  // Flattens pane damage into a renderable frame.
     renderer: Renderer,      // Writes frame differences to the terminal.
     widgets: WidgetStore,    // Tracks widgets, focus, hover, and pressed state.
@@ -79,10 +81,10 @@ impl Ui {
     // Construction, Rendering, and Building
     // =========================================================================
 
-    /// Creates a new UI with the given size and optional root border.
-    pub fn new(width: usize, height: usize, border: Option<BorderKind>) -> Self {
+    /// Creates a new UI with the given size and optional background glyph.
+    pub fn new(width: usize, height: usize, bg: Option<Glyph>) -> Self {
         Self {
-            canvas: Canvas::new(width, height, border),
+            canvas: Canvas::new(Size { width, height }, bg),
             compositor: Compositor::new(width, height),
             renderer: Renderer::new(width, height, true),
             widgets: WidgetStore::new(),
@@ -109,7 +111,7 @@ impl Ui {
     pub fn add_widget(
         &mut self,
         pane_id: PaneId,
-        widget: Widget,
+        widget: impl Into<Widget>,
         layout: WidgetLayout,
     ) -> WidgetId {
         self.widgets.add_widget(pane_id, widget, layout)
@@ -140,76 +142,88 @@ impl Ui {
             return UiEvent::None;
         }
 
-        if let Some(hit) = self.canvas.pane_at(pos)
-            && hit.element == PaneElement::Content
-            && let Some(content_local) = hit.content_local
-        {
-            return self
-                .widgets
-                .hover(&self.canvas, hit.pane_id, content_local)
-                .map(UiEvent::WidgetHovered)
-                .unwrap_or(UiEvent::None);
-        }
+        match self.canvas.hit_at(pos) {
+            HitTarget::Pane { pane_id, hit }
+                if hit.element == PaneElement::Content && hit.content_local.is_some() =>
+            {
+                let content_local = hit.content_local.unwrap();
 
-        self.widgets.clear_hover();
-        UiEvent::None
+                self.widgets
+                    .hover(&self.canvas, pane_id, content_local)
+                    .map(UiEvent::WidgetHovered)
+                    .unwrap_or(UiEvent::None)
+            }
+
+            _ => {
+                self.widgets.clear_hover();
+                UiEvent::None
+            }
+        }
     }
 
     /// Handles mouse press for panes, widgets, and drag start behavior.
     pub fn mouse_down(&mut self, pos: Point) -> UiEvent {
-        let Some(hit) = self.canvas.pane_at(pos) else {
-            self.clear_focus();
-            self.clear_hover();
-            self.drag = None;
-            return UiEvent::None;
-        };
-
-        self.focus_pane(hit.pane_id);
-
-        match hit.element {
-            PaneElement::Content => {
-                let Some(content_local) = hit.content_local else {
-                    self.focus_widget(None);
-                    self.clear_hover();
-                    return UiEvent::PanePressed(hit);
-                };
-
-                let Some(widget_hit) =
-                    self.widgets
-                        .mouse_down(&self.canvas, hit.pane_id, content_local)
-                else {
-                    self.focus_widget(None);
-                    self.clear_hover();
-                    return UiEvent::PanePressed(hit);
-                };
-
-                // Preserve slider behavior: clicking a slider immediately updates its value.
-                let Some(rect) = self.widgets.widget_rect(&self.canvas, widget_hit.widget_id)
-                else {
-                    return UiEvent::WidgetPressed(widget_hit);
-                };
-
-                let action = self
-                    .widgets
-                    .edit(widget_hit.widget_id, |w| {
-                        w.drag_action(widget_hit.local.x, rect.width)
-                    })
-                    .unwrap_or(WidgetAction::None);
-
-                match action {
-                    WidgetAction::None => UiEvent::WidgetPressed(widget_hit),
-                    action => map_widget_action(widget_hit.widget_id, Some(widget_hit), action),
-                }
+        match self.canvas.hit_at(pos) {
+            HitTarget::Background { global: _ } => {
+                self.clear_focus();
+                self.clear_hover();
+                self.drag = None;
+                UiEvent::None
             }
 
-            PaneElement::Title | PaneElement::Border => self.begin_pane_drag(
-                hit,
-                DragMode::Move {
-                    grab_offset: hit.local,
-                },
-            ),
+            HitTarget::Pane { pane_id, hit } => {
+                self.focus_pane(pane_id);
 
-            PaneElement::Resize => self.begin_pane_drag(hit, DragMode::Resize),
+                match hit.element {
+                    PaneElement::Content => {
+                        let Some(content_local) = hit.content_local else {
+                            self.focus_widget(None);
+                            self.clear_hover();
+                            return UiEvent::PanePressed { pane_id, hit };
+                        };
+
+                        let Some(widget_hit) =
+                            self.widgets
+                                .mouse_down(&self.canvas, pane_id, content_local)
+                        else {
+                            self.focus_widget(None);
+                            self.clear_hover();
+                            return UiEvent::PanePressed { pane_id, hit };
+                        };
+
+                        // Preserve slider behavior: clicking a slider immediately updates its value.
+                        let Some(rect) =
+                            self.widgets.widget_rect(&self.canvas, widget_hit.widget_id)
+                        else {
+                            return UiEvent::WidgetPressed(widget_hit);
+                        };
+
+                        let action = self
+                            .widgets
+                            .edit(widget_hit.widget_id, |w| {
+                                w.drag_action(widget_hit.local.x, rect.width)
+                            })
+                            .unwrap_or(WidgetAction::None);
+
+                        match action {
+                            WidgetAction::None => UiEvent::WidgetPressed(widget_hit),
+                            action => {
+                                map_widget_action(widget_hit.widget_id, Some(widget_hit), action)
+                            }
+                        }
+                    }
+
+                    PaneElement::Title | PaneElement::Border => self.begin_pane_drag(
+                        pane_id,
+                        hit,
+                        DragMode::Move {
+                            grab_offset: hit.local,
+                        },
+                    ),
+
+                    PaneElement::Resize => self.begin_pane_drag(pane_id, hit, DragMode::Resize),
+                }
+            }
         }
     }
 
@@ -301,14 +315,16 @@ impl Ui {
     /// Focuses a pane and refreshes widget state for the old and new pane.
     pub fn focus_pane(&mut self, pane_id: PaneId) {
         let old_pane = self.canvas.focused();
-        if old_pane == pane_id {
+        if old_pane == Some(pane_id) {
             return;
         }
 
-        self.canvas.focus(pane_id);
+        self.canvas.focus(Some(pane_id));
 
-        // Recompute cursor/render state for both panes.
-        self.widgets.invalidate_pane(old_pane);
+        if let Some(old_pane) = old_pane {
+            self.widgets.invalidate_pane(old_pane);
+        }
+
         self.widgets.invalidate_pane(pane_id);
     }
 
@@ -321,8 +337,11 @@ impl Ui {
         self.widgets.focus(widget_id);
 
         match new_pane {
-            Some(pane_id) => self.canvas.focus(pane_id),
-            None => self.canvas.set_cursor(None),
+            Some(pane_id) => self.canvas.focus(Some(pane_id)),
+            None => {
+                self.canvas.focus(None);
+                self.canvas.set_cursor(None);
+            }
         }
 
         if let Some(pane_id) = old_pane {
@@ -335,7 +354,7 @@ impl Ui {
     }
 
     /// Returns the currently focused pane id.
-    pub fn focused_pane(&self) -> PaneId {
+    pub fn focused_pane(&self) -> Option<PaneId> {
         self.canvas.focused()
     }
 
@@ -349,15 +368,16 @@ impl Ui {
         self.widgets.clear_hover();
     }
 
-    /// Clears widget focus and returns focus to the root canvas pane.
+    /// Clears widget focus and pane focus.
     pub fn clear_focus(&mut self) {
         let old_pane = self
             .widgets
             .focused()
-            .and_then(|widget_id| self.widgets.pane_id_of(widget_id));
+            .and_then(|widget_id| self.widgets.pane_id_of(widget_id))
+            .or(self.canvas.focused());
 
         self.widgets.focus(None);
-        self.canvas.focus(Canvas::ROOT_ID);
+        self.canvas.focus(None);
         self.canvas.set_cursor(None);
 
         if let Some(pane_id) = old_pane {
@@ -383,7 +403,7 @@ impl Ui {
             .and_then(|widget_id| self.widgets.pane_id_of(widget_id))
             == Some(pane_id);
 
-        if self.canvas.focused() == pane_id && focused_on_this_pane {
+        if self.canvas.focused() == Some(pane_id) && focused_on_this_pane {
             self.widgets.invalidate_pane(pane_id);
         }
     }
@@ -405,7 +425,7 @@ impl Ui {
             .and_then(|widget_id| self.widgets.pane_id_of(widget_id))
             == Some(pane_id);
 
-        if focused_on_this_pane || self.canvas.focused() == pane_id {
+        if focused_on_this_pane || self.canvas.focused() == Some(pane_id) {
             self.cleanup_hidden_pane_state(pane_id);
         }
 
@@ -522,16 +542,6 @@ impl Ui {
         f(&mut self.canvas)
     }
 
-    /// Borrows the root pane immutably for advanced read-only operations.
-    pub fn with_root<R>(&self, f: impl FnOnce(&Pane) -> R) -> R {
-        f(self.canvas.root())
-    }
-
-    /// Borrows the root pane mutably for direct root content updates.
-    pub fn with_root_mut<R>(&mut self, f: impl FnOnce(&mut Pane) -> R) -> R {
-        f(self.canvas.root_mut())
-    }
-
     /// Borrows a specific pane immutably when it exists for advanced read-only operations.
     pub fn with_pane<R>(&self, pane_id: PaneId, f: impl FnOnce(&Pane) -> R) -> Option<R> {
         self.canvas.pane(pane_id).map(f)
@@ -564,13 +574,15 @@ impl Ui {
 
     /// Recomputes hover state after drag completion.
     fn sync_hover(&mut self, pos: Point) {
-        if let Some(hit) = self.canvas.pane_at(pos)
-            && hit.element == PaneElement::Content
-            && let Some(content_local) = hit.content_local
-        {
-            let _ = self.widgets.hover(&self.canvas, hit.pane_id, content_local);
-        } else {
-            self.widgets.clear_hover();
+        match self.canvas.hit_at(pos) {
+            HitTarget::Pane { pane_id, hit }
+                if hit.element == PaneElement::Content && hit.content_local.is_some() =>
+            {
+                let content_local = hit.content_local.unwrap();
+                let _ = self.widgets.hover(&self.canvas, pane_id, content_local);
+            }
+
+            _ => self.widgets.clear_hover(),
         }
     }
 
@@ -588,31 +600,30 @@ impl Ui {
             self.canvas.set_cursor(None);
         }
 
-        if self.canvas.focused() == pane_id {
-            self.canvas.focus(Canvas::ROOT_ID);
+        if self.canvas.focused() == Some(pane_id) {
+            self.canvas.focus(None);
         }
 
         self.widgets.clear_hover();
     }
 
-    /// Returns pane and content-local hit data when the position is over pane content.
+    /// Returns pane/content hit data when the position is over pane content.
     #[inline]
-    fn content_hit_at(&self, pos: Point) -> Option<(PaneHit, Point)> {
-        let hit = self.canvas.pane_at(pos)?;
-        if hit.element != PaneElement::Content {
-            return None;
+    fn content_hit_at(&self, pos: Point) -> Option<(PaneId, PaneHit, Point)> {
+        match self.canvas.hit_at(pos) {
+            HitTarget::Pane { pane_id, hit } if hit.element == PaneElement::Content => {
+                let content_local = hit.content_local?;
+                Some((pane_id, hit, content_local))
+            }
+            _ => None,
         }
-
-        let content_local = hit.content_local?;
-        Some((hit, content_local))
     }
 
     /// Returns the widget hit at the given screen position.
     #[inline]
     fn widget_hit_at_pos(&self, pos: Point) -> Option<WidgetHit> {
-        let (hit, content_local) = self.content_hit_at(pos)?;
-        self.widgets
-            .widget_at(&self.canvas, hit.pane_id, content_local)
+        let (pane_id, _, content_local) = self.content_hit_at(pos)?;
+        self.widgets.widget_at(&self.canvas, pane_id, content_local)
     }
 
     /// Returns the pressed widget hit when the pointer is still over the same widget.
@@ -627,24 +638,20 @@ impl Ui {
     /// Returns the widget hit that should handle the current mouse release.
     #[inline]
     fn mouse_up_widget_hit(&mut self, pos: Point) -> Option<WidgetHit> {
-        let (hit, content_local) = self.content_hit_at(pos)?;
-        self.widgets
-            .mouse_up(&self.canvas, hit.pane_id, content_local)
+        let (pane_id, _, content_local) = self.content_hit_at(pos)?;
+        self.widgets.mouse_up(&self.canvas, pane_id, content_local)
     }
 
     /// Starts dragging the given pane using the specified drag mode.
     #[inline]
-    fn begin_pane_drag(&mut self, hit: PaneHit, mode: DragMode) -> UiEvent {
+    fn begin_pane_drag(&mut self, pane_id: PaneId, _hit: PaneHit, mode: DragMode) -> UiEvent {
         self.focus_widget(None);
         self.clear_hover();
 
-        self.drag = Some(DragState {
-            pane_id: hit.pane_id,
-            mode,
-        });
+        self.drag = Some(DragState { pane_id, mode });
 
         UiEvent::PaneDragStart {
-            pane_id: hit.pane_id,
+            pane_id,
             kind: mode.kind(),
         }
     }

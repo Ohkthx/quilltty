@@ -180,7 +180,7 @@ impl Compositor {
 
     /// Applies the visible `Pane` data into the `back` buffer only where `spans`
     /// mark damage.
-    pub(crate) fn flatten(&mut self, root: &Pane, panes: &[Pane], spans: &[DamagedRow]) {
+    pub(crate) fn flatten(&mut self, clear_glyph: Glyph, panes: &[Pane], spans: &[DamagedRow]) {
         let (width, height) = (self.back.width, self.back.height);
 
         // Iterate each damaged row in screen space.
@@ -197,8 +197,7 @@ impl Compositor {
                 let row_start = y * width;
 
                 // Seed the damaged slice from the root pane.
-                self.back.data[row_start + x0..row_start + x1]
-                    .copy_from_slice(&root.data[row_start + x0..row_start + x1]);
+                self.back.data[row_start + x0..row_start + x1].fill(clear_glyph);
 
                 // Overlay every visible pane that intersects this row/span.
                 for pane in panes {

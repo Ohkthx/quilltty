@@ -197,7 +197,7 @@ impl WidgetStore {
     pub fn add_widget(
         &mut self,
         pane_id: PaneId,
-        widget: Widget,
+        widget: impl Into<Widget>,
         layout: WidgetLayout,
     ) -> WidgetId {
         WidgetBuilder::new(pane_id, self)
@@ -213,7 +213,7 @@ impl WidgetStore {
                 continue;
             }
 
-            let pane_is_focused = canvas.focused() == pane_id;
+            let pane_is_focused = canvas.focused() == Some(pane_id);
             let focused_widget = self.focused;
             let mut pane_cursor = None;
 

@@ -86,6 +86,13 @@ impl Point {
     }
 }
 
+impl From<Rect> for Point {
+    #[inline]
+    fn from(value: Rect) -> Self {
+        Self::new(value.x, value.y)
+    }
+}
+
 impl From<(usize, usize)> for Point {
     #[inline]
     fn from(value: (usize, usize)) -> Self {
@@ -140,6 +147,56 @@ impl std::ops::SubAssign<Point> for Point {
     }
 }
 
+/// Dimensions as columns and rows within a space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Size {
+    /// Width in columns.
+    pub width: usize,
+    /// Height in rows.
+    pub height: usize,
+}
+
+impl Size {
+    /// Size of 0.
+    pub const ZERO: Self = Self {
+        width: 0,
+        height: 0,
+    };
+
+    /// Creates a new `Size` from dimensions.
+    #[inline]
+    pub fn new(width: usize, height: usize) -> Self {
+        Self { width, height }
+    }
+
+    /// Calculate the dot product for the Size.
+    #[inline]
+    pub fn dot(&self) -> usize {
+        self.width.saturating_mul(self.height)
+    }
+}
+
+impl From<(usize, usize)> for Size {
+    #[inline]
+    fn from(value: (usize, usize)) -> Self {
+        Self::new(value.0, value.1)
+    }
+}
+
+impl From<Rect> for Size {
+    #[inline]
+    fn from(value: Rect) -> Self {
+        Self::new(value.width, value.height)
+    }
+}
+
+impl From<(u16, u16)> for Size {
+    #[inline]
+    fn from((x, y): (u16, u16)) -> Self {
+        Self::new(x as usize, y as usize)
+    }
+}
+
 /// Bounds of an area including position that is based off of a top-left coordinate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Rect {
@@ -159,6 +216,14 @@ impl Rect {
     pub fn with_origin(mut self, origin: Point) -> Self {
         self.x = origin.x;
         self.y = origin.y;
+        self
+    }
+
+    /// Assigns the width and height to the `Size`.
+    #[must_use]
+    pub fn with_size(mut self, size: Size) -> Self {
+        self.width = size.width;
+        self.height = size.height;
         self
     }
 
@@ -183,6 +248,11 @@ impl Rect {
     pub fn height(mut self, height: usize) -> Self {
         self.height = height;
         self
+    }
+
+    /// Convers from a deconstructed version back into a Rect.
+    pub fn from(point: Point, size: Size) -> Self {
+        Self::default().with_origin(point).with_size(size)
     }
 
     /// Returns a new `Rect` centered on `(x, y)`.

@@ -1,3 +1,5 @@
+//! File: src/ui/macros.rs
+
 macro_rules! widget_types {
     (
         $(

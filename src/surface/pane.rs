@@ -2,7 +2,7 @@
 
 use crate::{
     Canvas,
-    geom::{Point, Rect},
+    geom::{Point, Rect, Size},
     style::{BorderKind, Color, Glyph, Style},
     surface::{backend::DamagedRow, indexed_vec::Keyed},
 };
@@ -38,30 +38,35 @@ pub struct PaneBuilder<'a> {
 
 impl<'a> PaneBuilder<'a> {
     /// Assigns a position and dimensions.
+    #[must_use]
     pub fn rect(mut self, rect: Rect) -> Self {
         self.rect = rect;
         self
     }
 
     /// Assigns the priority and rendering position.
+    #[must_use]
     pub fn layer(mut self, z_layer: u16) -> Self {
         self.z_layer = z_layer;
         self
     }
 
     /// Assigns if the `Pane` will be visible or not.
+    #[must_use]
     pub fn visible(mut self, visible: bool) -> Self {
         self.visible = visible;
         self
     }
 
     /// Assigns if the `Pane` will be movable or not.
+    #[must_use]
     pub fn movable(mut self, movable: bool) -> Self {
         self.movable = movable;
         self
     }
 
     /// Assigns if the `Pane` will be resizable or not.
+    #[must_use]
     pub fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
         self
@@ -94,14 +99,7 @@ impl<'a> PaneBuilder<'a> {
             PaneId(canvas.panes.len() as u32)
         };
 
-        assert!(
-            pane_id != Canvas::ROOT_ID,
-            "Cannot assign Root Pane identifier"
-        );
-        assert!(
-            self.rect.width > 0 && self.rect.height > 0,
-            "Pane size must be > 0"
-        );
+        assert!(Size::from(self.rect) != Size::ZERO, "Pane size must be > 0");
 
         let pane = Pane::new(pane_id)
             .with_rect(self.rect)

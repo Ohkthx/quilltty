@@ -2,77 +2,67 @@
 
 use crate::{
     Pane, PaneBuilder, PaneId,
-    geom::{Point, Rect},
+    geom::{Point, Rect, Size},
     render::{Compositor, Renderer},
-    style::{BorderKind, Color, Glyph, Style},
+    style::{Color, Glyph, Style},
     surface::{backend::DamagedRow, indexed_vec::IndexedVec},
     ui::PaneElement,
 };
 
-/// `Pane` and `Element` for hit detection.
+/// `Pane` hit information.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PaneHit {
-    /// Unique identifier for the `Pane`.
-    pub pane_id: PaneId,
     /// Element that was hit.
     pub element: PaneElement,
-    /// Global `Point`
+    /// Global `Point`.
     pub global: Point,
-    /// Local `Point`.
+    /// Position local to the pane.
     pub local: Point,
-    /// Content-local, only for content hits
+    /// Position local to the pane content, only for content hits.
     pub content_local: Option<Point>,
 }
 
-/// Manages panes, their ordering, creation, and deletion.
+/// Location that was hit during hit-testing.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum HitTarget {
+    /// A visible pane was hit.
+    Pane { pane_id: PaneId, hit: PaneHit },
+    /// Empty canvas/background area was hit.
+    Background { global: Point },
+}
+
+/// Manages panes, ordering, focus, and damage over the canvas.
 pub struct Canvas {
-    pub(crate) root: Pane,                      // Main pane.
-    pub(crate) panes: IndexedVec<PaneId, Pane>, // Child panes to the root.
-    pub(crate) damaged: Vec<DamagedRow>,        // Damaged spans for each canvas row.
+    size: Size,                                 // Size of the canvas.
+    clear_glyph: Glyph,                         // Glyph used to clear uncovered cells.
+    forced_redraw: bool,                        // Forces redraw next render.
+    pub(crate) panes: IndexedVec<PaneId, Pane>, // Visible/hidden child panes.
+    pub(crate) damaged: Vec<DamagedRow>,        // Damaged spans in canvas space.
     pub(crate) freed_ids: Vec<PaneId>,          // Reusable PaneIds.
-    pub(crate) cursor: Option<Point>,           // Cursor position on the Canvas.
-    pub(crate) focused: PaneId,                 // Currently focused Pane.
+    pub(crate) cursor: Option<Point>,           // Cursor position on the canvas.
+    pub(crate) focused: Option<PaneId>,         // Currently focused pane.
 }
 
 impl Canvas {
-    /// Reserved `PaneId` for the root pane.
-    pub const ROOT_ID: PaneId = PaneId(u32::MAX - 1);
-
-    /// Creates a new instance with a root pane covering the given dimensions.
-    pub fn new(width: usize, height: usize, border: Option<BorderKind>) -> Self {
-        assert!(width > 0 && height > 0, "Canvas size must be > 0");
-
-        let rect = Rect {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        };
+    /// Creates a new instance with the given dimensions.
+    pub fn new(size: Size, bg: Option<Glyph>) -> Self {
+        assert!(size != Size::ZERO, "Canvas size must be > 0");
 
         Self {
-            root: Pane::new(Self::ROOT_ID)
-                .with_rect(rect)
-                .with_z_layer(0)
-                .with_focus(false)
-                .with_visibility(true)
-                .with_movability(false)
-                .with_resizability(false)
-                .with_border(border)
-                .with_border_style(Style::default().with_fg(Color::White))
-                .with_title(None)
-                .with_data(vec![Glyph::default(); width * height])
-                .build(),
+            size,
+            clear_glyph: bg.unwrap_or(Glyph::from(' ')),
+            forced_redraw: true,
             panes: IndexedVec::new(),
-            damaged: vec![DamagedRow::default(); height],
+            damaged: vec![DamagedRow::default(); size.height],
             freed_ids: Vec::new(),
             cursor: None,
-            focused: Self::ROOT_ID,
+            focused: None,
         }
     }
 
-    /// Creates a new pane, reusing previously freed `PaneId`s when available.
+    /// Creates a new pane builder using the current canvas rect as the default rect.
     pub fn create_pane(&mut self) -> PaneBuilder<'_> {
-        let rect = self.root.rect;
+        let rect = self.rect();
         PaneBuilder {
             canvas: self,
             rect,
@@ -86,60 +76,56 @@ impl Canvas {
         }
     }
 
-    /// Immutable root pane for the display.
-    pub fn root(&self) -> &Pane {
-        &self.root
+    /// Returns the canvas size.
+    pub fn size(&self) -> Size {
+        self.size
     }
 
-    /// Mutable root pane used as the basis for all writes.
-    pub fn root_mut(&mut self) -> &mut Pane {
-        &mut self.root
+    /// Full rectangle occupied by the canvas.
+    pub fn rect(&self) -> Rect {
+        Rect {
+            x: 0,
+            y: 0,
+            width: self.size.width,
+            height: self.size.height,
+        }
     }
 
-    /// Obtains an immutable pane from currently managed panes.
+    /// Returns the glyph used to clear uncovered cells.
+    pub fn clear_glyph(&self) -> Glyph {
+        self.clear_glyph
+    }
+
+    /// Sets the glyph used to clear uncovered cells.
+    pub fn set_clear_glyph(&mut self, glyph: Glyph) {
+        if self.clear_glyph != glyph {
+            self.clear_glyph = glyph;
+            self.mark_damaged(self.rect());
+        }
+    }
+
+    /// Forces the next render to perform a full redraw.
+    pub fn force_redraw(&mut self) {
+        self.forced_redraw = true;
+    }
+
+    /// Obtains an immutable pane from the managed pane list.
     pub fn pane(&self, pane_id: PaneId) -> Option<&Pane> {
-        if pane_id == Self::ROOT_ID {
-            Some(&self.root)
-        } else {
-            self.panes.get(&pane_id)
-        }
+        self.panes.get(&pane_id)
     }
 
-    /// Obtains a mutable pane from currently managed panes.
+    /// Obtains a mutable pane from the managed pane list.
     pub fn pane_mut(&mut self, pane_id: PaneId) -> Option<&mut Pane> {
-        if pane_id == Self::ROOT_ID {
-            Some(&mut self.root)
-        } else {
-            self.panes.get_mut(&pane_id)
-        }
+        self.panes.get_mut(&pane_id)
     }
 
-    /// Sets the cursor to specific coordinates on the `Canvas`.
+    /// Sets the cursor to specific coordinates on the canvas.
     pub fn set_cursor(&mut self, cursor: Option<Point>) {
         self.cursor = cursor;
     }
 
-    /// Writes a `Glyph` to the root pane at `(x, y)`.
-    pub fn set(&mut self, position: Point, glyph: impl Into<Glyph>) {
-        self.root.set(position, glyph);
-    }
-
-    /// Set the `Pane` title to a new value.
+    /// Sets a pane title and marks the affected title row span as damaged.
     pub fn set_pane_title(&mut self, pane_id: PaneId, title: Option<String>) -> bool {
-        if pane_id == Self::ROOT_ID {
-            self.root.set_title(title);
-
-            let width = self.root.rect.width;
-            let y = self.root.rect.y;
-
-            if width > 0 {
-                // Mark the entire top row as damaged.
-                Self::mark_canvas_span_in(&mut self.damaged, width, y, 0, width);
-            }
-
-            return true;
-        }
-
         let Some((rect, visible, _, _, _)) =
             self.with_pane_state_change(pane_id, |pane| pane.set_title(title))
         else {
@@ -147,121 +133,104 @@ impl Canvas {
         };
 
         if visible && rect.width > 0 {
+            let width = self.size.width;
             let y = rect.y;
             let x0 = rect.x;
-            let x1 = rect.x + rect.width;
-            Self::mark_canvas_span_in(&mut self.damaged, self.root.rect.width, y, x0, x1);
+            let x1 = rect.x.saturating_add(rect.width);
+            Self::mark_canvas_span_in(&mut self.damaged, width, y, x0, x1);
         }
 
         true
     }
 
-    /// Obtains the top-most `PaneId` and `PaneElement` at the `Point` provided.
-    pub fn pane_at(&self, position: Point) -> Option<PaneHit> {
+    /// Returns the top-most target at the given canvas position.
+    pub fn hit_at(&self, position: Point) -> HitTarget {
         for pane in self.panes.iter().rev() {
             if !pane.visible || !pane.rect.contains_point(position) {
                 continue;
             }
 
-            let local = position.saturating_sub(pane.rect.origin());
+            let pane_origin = pane.rect.origin();
+            let content_origin = pane.content_rect().origin();
+            let local = position.saturating_sub(pane_origin);
 
-            // Extract the hit element.
             if let Some(element) = pane.element_at(local) {
                 let content_local = if element == PaneElement::Content {
-                    Some(
-                        local.saturating_sub(
-                            pane.content_rect()
-                                .origin()
-                                .saturating_sub(pane.rect.origin()),
-                        ),
-                    )
+                    Some(position.saturating_sub(content_origin))
                 } else {
                     None
                 };
 
-                return Some(PaneHit {
+                return HitTarget::Pane {
                     pane_id: pane.id,
-                    element,
-                    local,
-                    content_local,
-                    global: position,
-                });
+                    hit: PaneHit {
+                        element,
+                        global: position,
+                        local,
+                        content_local,
+                    },
+                };
             }
         }
 
-        // Default to root.
-        if self.root.rect().contains_point(position) {
-            let local = position.saturating_sub(self.root.rect.origin());
+        let min = Point::ZERO;
+        let max = Point::new(
+            self.size.width.saturating_sub(1),
+            self.size.height.saturating_sub(1),
+        );
 
-            return self.root.element_at(local).map(|element| {
-                let content_local = if element == PaneElement::Content {
-                    Some(
-                        local.saturating_sub(
-                            self.root
-                                .content_rect()
-                                .origin()
-                                .saturating_sub(self.root.rect.origin()),
-                        ),
-                    )
-                } else {
-                    None
-                };
-
-                PaneHit {
-                    pane_id: Self::ROOT_ID,
-                    element,
-                    local,
-                    content_local,
-                    global: position,
-                }
-            });
+        HitTarget::Background {
+            global: position.clamp(min, max),
         }
-
-        None
     }
 
-    /// Returns the `PaneId` for the pane that is currently focused.
-    pub fn focused(&self) -> PaneId {
+    /// Returns the currently focused pane, if any.
+    pub fn focused(&self) -> Option<PaneId> {
         self.focused
     }
 
-    /// Sets the `PaneId` to be the current focus.
-    pub fn focus(&mut self, pane_id: PaneId) {
-        if pane_id == self.focused || self.pane(pane_id).is_none() {
+    /// Sets the focused pane. `None` clears pane focus.
+    pub fn focus(&mut self, pane_id: Option<PaneId>) {
+        if pane_id == self.focused {
+            return;
+        }
+
+        if let Some(id) = pane_id
+            && self.pane(id).is_none()
+        {
             return;
         }
 
         let old_id = self.focused;
         self.focused = pane_id;
 
-        if let Some(old) = self.pane_mut(old_id) {
+        if let Some(old_id) = old_id
+            && let Some(old) = self.pane_mut(old_id)
+        {
             old.set_focus(false);
         }
 
-        if let Some(new) = self.pane_mut(pane_id) {
+        if let Some(new_id) = pane_id
+            && let Some(new) = self.pane_mut(new_id)
+        {
             new.set_focus(true);
         }
 
         self.cursor = None;
     }
 
-    /// Resizes the `Pane`, extending or shrinking from the resize point.
+    /// Resizes a pane, clamped to the canvas bounds and pane minimum size.
     pub fn resize_pane(&mut self, pane_id: PaneId, width: usize, height: usize) -> bool {
-        if pane_id == Self::ROOT_ID {
-            return false;
-        }
+        let bounds = self.rect();
 
-        let bounds = self.root.rect;
         let Some((old_rect, old_visible, new_rect, _, _)) =
             self.with_pane_state_change(pane_id, |pane| {
                 if !pane.resizable {
                     return;
                 }
 
-                let mut width = width;
-                let mut height = height;
-
                 let min = pane.minimum_size();
+
                 let max_width = bounds
                     .x
                     .saturating_add(bounds.width)
@@ -274,10 +243,7 @@ impl Canvas {
                     .saturating_sub(pane.rect.y)
                     .max(min.y);
 
-                width = width.min(max_width);
-                height = height.min(max_height);
-
-                pane.resize(width, height);
+                pane.resize(width.min(max_width), height.min(max_height));
             })
         else {
             return false;
@@ -295,13 +261,10 @@ impl Canvas {
         true
     }
 
-    /// Moves the `Pane` to the specified XY-coordinate, optionally clamping to the `Canvas`.
+    /// Moves a pane to the specified origin, optionally clamping to the canvas.
     pub fn move_pane(&mut self, pane_id: PaneId, position: Point, clamp: bool) -> bool {
-        if pane_id == Self::ROOT_ID {
-            return false;
-        }
+        let bounds = self.rect();
 
-        let bounds = self.root.rect;
         let Some((old_rect, old_visible, new_rect, _, _)) =
             self.with_pane_state_change(pane_id, |pane| {
                 if !pane.movable {
@@ -327,10 +290,8 @@ impl Canvas {
         true
     }
 
-    /// Marks the `Pane` as invisible.
+    /// Marks a pane as hidden.
     pub fn hide_pane(&mut self, pane_id: PaneId) -> bool {
-        assert!(pane_id != Self::ROOT_ID, "Cannot hide root pane.");
-
         let Some((old_rect, old_visible, _, new_visible, _)) =
             self.with_pane_state_change(pane_id, |pane| pane.hide())
         else {
@@ -345,10 +306,8 @@ impl Canvas {
         true
     }
 
-    /// Marks the `Pane` as visible.
+    /// Marks a pane as visible.
     pub fn show_pane(&mut self, pane_id: PaneId) -> bool {
-        assert!(pane_id != Self::ROOT_ID, "Cannot show root pane.");
-
         let Some((_, old_visible, new_rect, new_visible, _)) =
             self.with_pane_state_change(pane_id, |pane| pane.show())
         else {
@@ -363,13 +322,8 @@ impl Canvas {
         true
     }
 
-    /// Toggles the visibility of the `Pane` between shown and hidden.
+    /// Toggles pane visibility.
     pub fn toggle_pane_visibility(&mut self, pane_id: PaneId) -> bool {
-        assert!(
-            pane_id != Self::ROOT_ID,
-            "Cannot toggle root pane visibility."
-        );
-
         let Some((old_rect, old_visible, new_rect, new_visible, _)) =
             self.with_pane_state_change(pane_id, |pane| pane.toggle_visibility())
         else {
@@ -391,7 +345,7 @@ impl Canvas {
         true
     }
 
-    /// Collects damage, composes damaged regions, renders the differences, and writes the output.
+    /// Composes damaged regions, renders the differences, and writes the output.
     pub fn render<W: std::io::Write>(
         &mut self,
         compositor: &mut Compositor,
@@ -399,31 +353,32 @@ impl Canvas {
         out: &mut W,
     ) -> std::io::Result<()> {
         self.collect_damage();
+        if self.forced_redraw {
+            self.mark_damaged(self.rect());
+            self.forced_redraw = false;
+        }
 
-        let has_damage = self.damaged.iter().any(|span| span.is_damaged());
+        let has_damage = self.damaged.iter().any(|row| row.is_damaged());
         if has_damage {
-            compositor.flatten(&self.root, self.panes.as_slice(), &self.damaged);
+            compositor.flatten(self.clear_glyph, self.panes.as_slice(), &self.damaged);
         }
 
         renderer.render(compositor, &self.damaged, self.cursor, out)?;
-        self.root.clear_damaged();
+
         for pane in self.panes.iter_mut() {
             pane.clear_damaged();
         }
-        self.clear_damage();
 
+        self.clear_damage();
         Ok(())
     }
 
-    /// All `PaneIds` belonging to the `Canvas`.
+    /// Returns all pane ids owned by the canvas.
     pub fn pane_ids(&self) -> impl DoubleEndedIterator<Item = PaneId> + '_ {
         self.panes.iter().map(|pane| pane.id())
     }
 
-    /// Applies `f` to the pane identified by `pane_id` and returns its rectangle and
-    /// visibility state before and after the change, along with `f`'s result.
-    ///
-    /// Returns `None` if no pane with `pane_id` exists.
+    /// Applies `f` to a pane and returns its rect/visibility before and after.
     fn with_pane_state_change<R>(
         &mut self,
         pane_id: PaneId,
@@ -442,7 +397,7 @@ impl Canvas {
 
     /// Marks the visible portion of `rect` as damaged in canvas space.
     fn mark_damaged(&mut self, rect: Rect) {
-        let Rect { width, height, .. } = self.root.rect;
+        let Rect { width, height, .. } = self.rect();
         if self.damaged.is_empty() || rect.width == 0 || rect.height == 0 {
             return;
         }
@@ -453,7 +408,6 @@ impl Canvas {
 
         let x0 = rect.x;
         let x1 = rect.x.saturating_add(rect.width).min(width);
-
         let y0 = rect.y;
         let y1 = rect.y.saturating_add(rect.height).min(height);
 
@@ -462,7 +416,7 @@ impl Canvas {
         }
     }
 
-    /// Marks an inclusive horizontal span on a single canvas row as damaged.
+    /// Marks a horizontal span on a single canvas row as damaged.
     #[inline]
     fn mark_canvas_span_in(
         damaged: &mut [DamagedRow],
@@ -483,7 +437,7 @@ impl Canvas {
         damaged[y].mark_range(x0, x1);
     }
 
-    /// Projects pane-local damaged spans into canvas-space damaged spans.
+    /// Projects pane-local damage into canvas-space damage.
     fn project_pane_damage_to_canvas(
         damaged: &mut [DamagedRow],
         canvas_width: usize,
@@ -510,10 +464,9 @@ impl Canvas {
         }
     }
 
-    /// Projects pane-local damaged spans into canvas-space damaged spans.
+    /// Collects visible pane damage into the canvas damage buffer.
     fn collect_damage(&mut self) {
-        let Rect { width, height, .. } = self.root.rect;
-        Self::project_pane_damage_to_canvas(&mut self.damaged, width, height, &self.root);
+        let Size { width, height } = self.size;
 
         for pane in self.panes.iter() {
             if pane.visible {
@@ -522,10 +475,10 @@ impl Canvas {
         }
     }
 
-    /// Collects root and visible pane damage into the canvas damage buffer.
+    /// Clears the accumulated canvas damage buffer.
     fn clear_damage(&mut self) {
-        for span in &mut self.damaged {
-            span.clear();
+        for row in &mut self.damaged {
+            row.clear();
         }
     }
 }

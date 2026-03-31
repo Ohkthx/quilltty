@@ -15,19 +15,16 @@ use crate::{
 pub struct ButtonWidget {
     pub(crate) state: WidgetState,     // Current state.
     pub interaction: InteractionStyle, // Style for interaction.
-    label: Option<String>,             // Text to render on the button.
+    label: String,                     // Text to render on the button.
 }
 
 impl ButtonWidget {
     /// Creates a new `ButtonWidget`.
-    pub fn new<L>(label: Option<L>) -> Self
-    where
-        L: Into<String>,
-    {
+    pub fn new(label: impl Into<String>) -> Self {
         Self {
             state: WidgetState::default(),
             interaction: InteractionStyle::default(),
-            label: label.map(Into::into),
+            label: label.into(),
         }
     }
 
@@ -45,8 +42,7 @@ impl ButtonWidget {
         let style = self.interaction.style(&self.state);
         self.clear_content(pane, rect, style);
 
-        let label = self.label.as_deref().unwrap_or("");
-        for (i, ch) in label.chars().take(rect.width).enumerate() {
+        for (i, ch) in self.label.chars().take(rect.width).enumerate() {
             pane.set(
                 Point::new(rect.x + i, rect.y),
                 Glyph::from(ch).with_style(style),
