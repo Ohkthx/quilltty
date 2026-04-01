@@ -104,7 +104,6 @@ impl<'a> PaneBuilder<'a> {
         let pane = Pane::new(pane_id)
             .with_rect(self.rect)
             .with_z_layer(self.z_layer)
-            .with_focus(false)
             .with_visibility(self.visible)
             .with_movability(self.movable)
             .with_resizability(self.resizable)
@@ -112,7 +111,7 @@ impl<'a> PaneBuilder<'a> {
             .with_border_style(self.border_style)
             .with_title(self.title)
             .with_data(vec![Glyph::default(); self.rect.width * self.rect.height])
-            .build();
+            .build(false);
 
         let idx = canvas
             .panes
@@ -130,9 +129,8 @@ pub struct Pane {
     pub(crate) rect: Rect,   // Position (XY coordinates) and dimensions (Width x Height).
     pub(crate) z_layer: u16, // Priority and rendering position.
 
-    pub(crate) focused: bool,   // If true, `Pane` will be marked as focused.
-    pub(crate) visible: bool,   // If true, `Pane` will render, otherwise it is hidden.
-    pub(crate) movable: bool,   // If true, `Pane` can be moved.
+    pub(crate) visible: bool, // If true, `Pane` will render, otherwise it is hidden.
+    pub(crate) movable: bool, // If true, `Pane` can be moved.
     pub(crate) resizable: bool, // If true, `Pane` can be resized.
 
     pub(crate) border: Option<BorderKind>, // Marks if a border goes around the `Pane`.
@@ -154,7 +152,6 @@ impl Pane {
             rect: Rect::default(),
             z_layer: 1,
 
-            focused: false,
             visible: true,
             movable: false,
             resizable: false,
@@ -223,13 +220,6 @@ impl Pane {
         self
     }
 
-    /// Assigns if the `Pane` will be focused.
-    #[must_use]
-    pub(crate) fn with_focus(mut self, is_focus: bool) -> Self {
-        self.focused = is_focus;
-        self
-    }
-
     /// Assigns the default data to be rendered.
     #[must_use]
     pub(crate) fn with_data(mut self, data: Vec<Glyph>) -> Self {
@@ -242,8 +232,8 @@ impl Pane {
 
     /// Performs final cleanup, setting any last touches.
     #[must_use]
-    pub(crate) fn build(mut self) -> Self {
-        self.draw_decorations();
+    pub(crate) fn build(mut self, focused: bool) -> Self {
+        self.draw_decorations(focused);
         self
     }
 
@@ -409,9 +399,9 @@ impl Pane {
     }
 
     /// Updates the title of the `Pane`.
-    pub(crate) fn set_title(&mut self, title: impl Into<Option<String>>) {
+    pub(crate) fn set_title(&mut self, title: impl Into<Option<String>>, focused: bool) {
         self.title = title.into();
-        self.redraw_header();
+        self.redraw_header(focused);
     }
 
     /// Writes `text` on a single content row starting at `(x, y)` with `style`.
@@ -435,18 +425,8 @@ impl Pane {
         }
     }
 
-    /// Marks the `Pane` as being focused.
-    pub(crate) fn set_focus(&mut self, is_focus: bool) {
-        if self.focused == is_focus {
-            return;
-        }
-
-        self.focused = is_focus;
-        self.draw_decorations();
-    }
-
     /// Resizes the `Pane` to the dimensions provided.
-    pub(crate) fn resize(&mut self, width: usize, height: usize) {
+    pub(crate) fn resize(&mut self, width: usize, height: usize, focused: bool) {
         let min = self.minimum_size();
         if width < min.x || height < min.y {
             return;
@@ -488,7 +468,7 @@ impl Pane {
         self.data = new_data;
         self.damaged = vec![DamagedRow::default(); height];
 
-        self.draw_decorations();
+        self.draw_decorations(focused);
         self.mark_all_damaged();
     }
 
@@ -550,7 +530,7 @@ impl Pane {
     }
 
     /// Draws the border around the pane.
-    fn draw_border(&mut self) {
+    fn draw_border(&mut self, focused: bool) {
         let Some(kind) = self.border else {
             return;
         };
@@ -560,7 +540,7 @@ impl Pane {
             return;
         }
 
-        let style = if self.focused {
+        let style = if focused {
             self.border_style.with_fg(Color::Red).bold()
         } else {
             self.border_style
@@ -635,14 +615,14 @@ impl Pane {
     }
 
     /// Redraws the title / top border.
-    fn redraw_header(&mut self) {
+    fn redraw_header(&mut self, focused: bool) {
         // Clear the top row first.
         if self.rect.height == 0 || self.rect.width == 0 {
             return;
         }
 
         if self.border.is_some() {
-            self.draw_border();
+            self.draw_border(focused);
         } else {
             for x in 0..self.rect.width {
                 let xy = Point::ZERO.with_x(x);
@@ -656,9 +636,9 @@ impl Pane {
     }
 
     /// Draws all decorations for the pane.
-    fn draw_decorations(&mut self) {
+    pub(crate) fn draw_decorations(&mut self, focused: bool) {
         if self.border.is_some() {
-            self.draw_border();
+            self.draw_border(focused);
         }
 
         if self.title.is_some() {

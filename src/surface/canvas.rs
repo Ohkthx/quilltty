@@ -126,8 +126,9 @@ impl Canvas {
 
     /// Sets a pane title and marks the affected title row span as damaged.
     pub fn set_pane_title(&mut self, pane_id: PaneId, title: Option<String>) -> bool {
+        let focused = self.focused == Some(pane_id);
         let Some((rect, visible, _, _, _)) =
-            self.with_pane_state_change(pane_id, |pane| pane.set_title(title))
+            self.with_pane_state_change(pane_id, |pane| pane.set_title(title, focused))
         else {
             return false;
         };
@@ -207,13 +208,13 @@ impl Canvas {
         if let Some(old_id) = old_id
             && let Some(old) = self.pane_mut(old_id)
         {
-            old.set_focus(false);
+            old.draw_decorations(false);
         }
 
         if let Some(new_id) = pane_id
             && let Some(new) = self.pane_mut(new_id)
         {
-            new.set_focus(true);
+            new.draw_decorations(true);
         }
 
         self.cursor = None;
@@ -222,6 +223,7 @@ impl Canvas {
     /// Resizes a pane, clamped to the canvas bounds and pane minimum size.
     pub fn resize_pane(&mut self, pane_id: PaneId, width: usize, height: usize) -> bool {
         let bounds = self.rect();
+        let focused = self.focused == Some(pane_id);
 
         let Some((old_rect, old_visible, new_rect, _, _)) =
             self.with_pane_state_change(pane_id, |pane| {
@@ -243,7 +245,7 @@ impl Canvas {
                     .saturating_sub(pane.rect.y)
                     .max(min.y);
 
-                pane.resize(width.min(max_width), height.min(max_height));
+                pane.resize(width.min(max_width), height.min(max_height), focused);
             })
         else {
             return false;
