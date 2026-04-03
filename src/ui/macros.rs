@@ -129,7 +129,7 @@ macro_rules! impl_widget_store_editors {
                 f: impl FnOnce(&mut $ty) -> R,
             ) -> Option<R> {
                 self.edit(widget_id, |widget| match widget {
-                    Widget::$variant(inner) => Some(f(inner)),
+                    $crate::ui::widget::Widget::$variant(inner) => Some(f(inner)),
                     _ => None,
                 })
                 .flatten()
@@ -152,7 +152,7 @@ macro_rules! impl_ui_widget_accessors {
             )]
             pub fn $getter(&self, widget_id: WidgetId) -> Option<&$ty> {
                 match self.widgets.get(widget_id)? {
-                    Widget::$variant(w) => Some(w),
+                    $crate::ui::widget::Widget::$variant(w) => Some(w),
                     _ => None,
                 }
             }

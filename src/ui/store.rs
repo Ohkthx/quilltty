@@ -3,14 +3,12 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    Canvas, PaneId,
-    geom::{Point, Rect},
-    prelude::*,
+    ButtonWidget, CheckboxWidget, InputWidget, LogWidget, ProgressWidget, SliderWidget, TextWidget,
+    Widget,
     surface::{
-        Layer,
+        Canvas, Layer, Pane, PaneId, Point, Rect,
         indexed_vec::{IndexedVec, Keyed},
     },
-    ui::Widget,
 };
 
 /// Unique identifier for a `Widget`.

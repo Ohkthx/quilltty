@@ -1,11 +1,10 @@
 //! File: src/ui/progress.rs
 
 use crate::{
-    prelude::*,
-    style::{Glyph, Style},
+    HasInteractionStyle, InteractionStyle, WidgetRender,
+    surface::{Glyph, Pane, Point, Rect, Style},
     ui::{
-        InteractionStyle,
-        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior, WidgetRender},
+        traits::{HasWidgetState, WidgetBehavior},
         widget::WidgetState,
     },
 };

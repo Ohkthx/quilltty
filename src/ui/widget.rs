@@ -29,7 +29,7 @@ pub use input::InputWidget;
 pub use log::LogWidget;
 pub use progress::ProgressWidget;
 pub use slider::SliderWidget;
-pub use text::TextWidget;
+pub use text::{StyledLine, StyledSpan, TextWidget};
 
 use crate::{
     geom::{Point, Rect},

@@ -1,6 +1,7 @@
 //! File: src/ui/slider.rs
 
 use crate::{
+    Pane, WidgetRender,
     prelude::*,
     style::{Glyph, Style},
     ui::{

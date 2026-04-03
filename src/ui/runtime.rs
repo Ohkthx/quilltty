@@ -2,14 +2,14 @@
 
 use std::io::{self, Write};
 
-use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
-
 use crate::{
-    prelude::*,
-    render::{Compositor, Renderer},
-    style::Glyph,
-    surface::{HitTarget, PaneAction},
-    ui::{PaneElement, PaneHit, WidgetAction},
+    ButtonWidget, CheckboxWidget, InputWidget, LogWidget, ProgressWidget, SliderWidget, TextWidget,
+    Widget, WidgetAction, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
+    crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
+    surface::{
+        Canvas, Compositor, Glyph, HitTarget, Pane, PaneAction, PaneBuilder, PaneElement, PaneHit,
+        PaneId, Point, Rect, Renderer, Size,
+    },
 };
 
 /// Describes the kind of pane drag currently in progress.
@@ -122,6 +122,15 @@ impl Ui {
     // =========================================================================
     // Input Handling
     // =========================================================================
+
+    /// Dispatches a raw Crossterm event into the appropriate UI handler.
+    pub fn handle_event(&mut self, event: Event) -> UiEvent {
+        match event {
+            Event::Key(key) => self.key(key),
+            Event::Mouse(mouse) => self.mouse(mouse),
+            _ => UiEvent::None,
+        }
+    }
 
     /// Dispatches a raw mouse event into the appropriate UI handler.
     pub fn mouse(&mut self, mouse: MouseEvent) -> UiEvent {

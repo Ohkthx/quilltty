@@ -1,11 +1,10 @@
 //! File: src/ui/traits.rs
 
-use crossterm::event::KeyCode;
-
 use crate::{
-    prelude::*,
-    style::Glyph,
-    ui::{InteractionStyle, WidgetAction, widget::WidgetState},
+    InteractionStyle, WidgetAction,
+    crossterm::event::KeyCode,
+    surface::{Glyph, Pane, Point, Rect, Style},
+    ui::widget::WidgetState,
 };
 
 pub trait HasWidgetState {
