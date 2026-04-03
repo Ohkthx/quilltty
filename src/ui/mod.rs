@@ -12,7 +12,7 @@ pub use crate::surface::{Canvas, HitTarget, Pane, PaneBuilder, PaneElement, Pane
 
 pub use runtime::{PaneDragKind, Ui, UiEvent};
 pub use store::{WidgetHit, WidgetId, WidgetLayout, WidgetStore};
-pub use traits::HasInteractionStyle;
+pub use traits::{HasInteractionStyle, WidgetRender};
 pub use widget::{
     ButtonWidget, CheckboxWidget, InputWidget, InteractionStyle, LogWidget, ProgressWidget,
     SliderWidget, TextWidget, Widget, WidgetAction,

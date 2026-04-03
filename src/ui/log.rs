@@ -5,6 +5,7 @@ use crate::{
     style::{Glyph, Style},
     surface::Pane,
     ui::{
+        WidgetRender,
         traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
         widget::{
             InteractionStyle, WidgetState,
@@ -58,7 +59,6 @@ impl LogWidget {
         self.lines
             .push(StyledLine::with_spans([StyledSpan::new(log)]));
 
-        // Drop the oldest lines once max_entries is exceeded.
         if self.max_entries > 0 && self.lines.len() > self.max_entries {
             let overflow = self.lines.len() - self.max_entries;
             self.lines.drain(0..overflow);
@@ -71,7 +71,6 @@ impl LogWidget {
     pub fn push_line(&mut self, line: StyledLine) {
         self.lines.push(line);
 
-        // Drop the oldest lines once the retention cap is exceeded.
         if self.max_entries > 0 && self.lines.len() > self.max_entries {
             let overflow = self.lines.len() - self.max_entries;
             self.lines.drain(0..overflow);
@@ -110,94 +109,32 @@ impl LogWidget {
         self.lines.is_empty()
     }
 
-    /// Draws the visible portion of the log into the widget rectangle.
-    pub(crate) fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        let interaction_style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, interaction_style);
-
-        // Expand logical lines into physical rows after wrapping.
-        let rows = self.layout_rows(rect.width, interaction_style);
-
-        // Only as many rows as fit in the widget can be shown.
-        // For ascending logs, show the newest rows; otherwise show from the top.
-        let visible_len = rows.len().min(rect.height);
-        let start = if self.ascending {
-            rows.len().saturating_sub(visible_len)
-        } else {
-            0
-        };
-
-        // For ascending logs, bottom-align the visible rows inside the rect.
-        let y_offset = if self.ascending {
-            rect.height.saturating_sub(visible_len)
-        } else {
-            0
-        };
-
-        // Draw each visible row into the pane.
-        for (row_idx, row) in rows[start..start + visible_len].iter().enumerate() {
-            let y = rect.y + y_offset + row_idx;
-
-            for (x, glyph) in row.iter().enumerate() {
-                pane.set(Point::new(rect.x + x, y), *glyph);
-            }
-        }
-
-        self.state.damaged = false;
-    }
-
-    /// Fills the widget area with spaces using the active background/style.
-    fn clear_content(&self, pane: &mut Pane, rect: Rect, style: Style) {
-        for y in 0..rect.height {
-            for x in 0..rect.width {
-                pane.set(
-                    Point::new(rect.x + x, rect.y + y),
-                    Glyph::from(' ').with_style(style),
-                );
-            }
-        }
-    }
-
     /// Converts stored styled lines into physical rows that fit a given width.
     fn layout_rows(&self, width: usize, interaction_style: Style) -> Vec<Vec<Glyph>> {
         let mut rows = Vec::new();
 
-        // Walk each logical line and split it into one or more physical rows.
         for line in &self.lines {
             let mut row = Vec::with_capacity(width);
 
-            // Process each styled span in order.
             for span in line.spans() {
-                // Use the interaction style when active, otherwise preserve span style.
                 let span_style = if interaction_style == Style::default() {
                     span.style
                 } else {
                     interaction_style
                 };
 
-                // Convert characters to glyphs and wrap as needed.
                 for ch in span.text.chars() {
                     if row.len() >= width {
                         if self.wrap {
                             rows.push(std::mem::take(&mut row));
                         } else {
-                            break; // Truncate the remaining line.
+                            break;
                         }
                     }
 
                     row.push(Glyph::from(ch).with_style(span_style));
                 }
 
-                // Stop early once the row is full when wrapping is disabled.
                 if !self.wrap && row.len() >= width {
                     break;
                 }
@@ -231,3 +168,44 @@ impl HasInteractionStyle for LogWidget {
 }
 
 impl WidgetBehavior for LogWidget {}
+
+impl WidgetRender for LogWidget {
+    /// Draws the visible portion of the log into the widget rectangle.
+    fn render(&mut self, pane: &mut Pane, rect: Rect) {
+        if !self.state.damaged {
+            return;
+        }
+
+        if rect.width == 0 || rect.height == 0 {
+            self.state.damaged = false;
+            return;
+        }
+
+        let interaction_style = self.interaction.style(&self.state);
+        self.clear_content(pane, rect, interaction_style);
+
+        let rows = self.layout_rows(rect.width, interaction_style);
+
+        let visible_len = rows.len().min(rect.height);
+        let start = if self.ascending {
+            rows.len().saturating_sub(visible_len)
+        } else {
+            0
+        };
+
+        let y_offset = if self.ascending {
+            rect.height.saturating_sub(visible_len)
+        } else {
+            0
+        };
+
+        for (row_idx, row) in rows[start..start + visible_len].iter().enumerate() {
+            let y = rect.y + y_offset + row_idx;
+            if !row.is_empty() {
+                pane.write_glyphs(Point::new(rect.x, y), row);
+            }
+        }
+
+        self.state.damaged = false;
+    }
+}

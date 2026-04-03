@@ -4,6 +4,7 @@ use crossterm::event::KeyCode;
 
 use crate::{
     prelude::*,
+    style::Glyph,
     ui::{InteractionStyle, WidgetAction, widget::WidgetState},
 };
 
@@ -83,5 +84,36 @@ pub trait WidgetBehavior {
         } else {
             WidgetAction::Released
         }
+    }
+}
+
+pub trait WidgetRender {
+    /// Builds styled glyphs for a single row of text.
+    fn glyph_row(text: &str, style: Style, width: usize) -> Vec<Glyph> {
+        text.chars()
+            .take(width)
+            .map(|ch| Glyph::from(ch).with_style(style))
+            .collect()
+    }
+
+    /// Writes one glyph row into the widget rectangle.
+    fn write_glyph_row(&self, pane: &mut Pane, rect: Rect, row: usize, glyphs: &[Glyph]) {
+        if row >= rect.height || glyphs.is_empty() {
+            return;
+        }
+
+        pane.write_glyphs(Point::new(rect.x, rect.y + row), glyphs);
+    }
+
+    /// Renders the widget to the Pane.
+    fn render(&mut self, pane: &mut Pane, rect: Rect);
+
+    /// Clears the widget rectangle using the pane bulk-fill path.
+    fn clear_content(&self, pane: &mut Pane, rect: Rect, style: Style) {
+        if rect.width == 0 || rect.height == 0 {
+            return;
+        }
+
+        pane.fill(rect, Glyph::from(' ').with_style(style));
     }
 }

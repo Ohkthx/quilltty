@@ -2,10 +2,10 @@
 
 use crate::{
     geom::{Point, Rect},
-    style::{Glyph, Style},
+    style::Glyph,
     surface::Pane,
     ui::{
-        InteractionStyle, WidgetAction,
+        InteractionStyle, WidgetAction, WidgetRender,
         traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
         widget::WidgetState,
     },
@@ -32,53 +32,6 @@ impl CheckboxWidget {
             label: label.map(Into::into),
             label_left,
             checked,
-        }
-    }
-
-    /// Renders the checkbox onto its parent `Pane`.
-    pub(crate) fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        let style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, style);
-
-        let checked = if self.checked { "x" } else { " " };
-        let label = if let Some(label) = self.label.as_deref() {
-            if self.label_left {
-                format!("{label}: [{checked}]")
-            } else {
-                format!("[{checked}]: {label}")
-            }
-        } else {
-            format!("[{checked}]")
-        };
-
-        for (i, ch) in label.chars().take(rect.width).enumerate() {
-            pane.set(
-                Point::new(rect.x + i, rect.y),
-                Glyph::from(ch).with_style(style),
-            );
-        }
-
-        self.state.damaged = false;
-    }
-
-    /// Nullifies the drawn text.
-    fn clear_content(&self, pane: &mut Pane, rect: Rect, style: Style) {
-        for y in 0..rect.height {
-            for x in 0..rect.width {
-                pane.set(
-                    Point::new(rect.x + x, rect.y + y),
-                    Glyph::from(' ').with_style(style),
-                );
-            }
         }
     }
 
@@ -134,5 +87,45 @@ impl WidgetBehavior for CheckboxWidget {
         } else {
             WidgetAction::Released
         }
+    }
+}
+
+impl WidgetRender for CheckboxWidget {
+    /// Renders the checkbox onto its parent `Pane`.
+    fn render(&mut self, pane: &mut Pane, rect: Rect) {
+        if !self.state.damaged {
+            return;
+        }
+
+        if rect.width == 0 || rect.height == 0 {
+            self.state.damaged = false;
+            return;
+        }
+
+        let style = self.interaction.style(&self.state);
+        self.clear_content(pane, rect, style);
+
+        let checked = if self.checked { "x" } else { " " };
+        let label = if let Some(label) = self.label.as_deref() {
+            if self.label_left {
+                format!("{label}: [{checked}]")
+            } else {
+                format!("[{checked}]: {label}")
+            }
+        } else {
+            format!("[{checked}]")
+        };
+
+        let row: Vec<Glyph> = label
+            .chars()
+            .take(rect.width)
+            .map(|ch| Glyph::from(ch).with_style(style))
+            .collect();
+
+        if !row.is_empty() {
+            pane.write_glyphs(Point::new(rect.x, rect.y), &row);
+        }
+
+        self.state.damaged = false;
     }
 }

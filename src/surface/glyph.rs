@@ -112,6 +112,37 @@ impl BorderKind {
             _ => BoxDraw::Cross,
         }
     }
+
+    /// Contains all glyphs for border drawing in the order: Horizontal, Vertical, TopLeft,
+    /// TopRight, BottomLeft, BottomRight
+    pub(crate) const fn glyphs(self) -> (BoxDraw, BoxDraw, BoxDraw, BoxDraw, BoxDraw, BoxDraw) {
+        match self {
+            BorderKind::Single => (
+                BoxDraw::Horizontal,
+                BoxDraw::Vertical,
+                BoxDraw::TopLeft,
+                BoxDraw::TopRight,
+                BoxDraw::BottomLeft,
+                BoxDraw::BottomRight,
+            ),
+            BorderKind::Rounded => (
+                BoxDraw::Horizontal,
+                BoxDraw::Vertical,
+                BoxDraw::RoundedTopLeft,
+                BoxDraw::RoundedTopRight,
+                BoxDraw::RoundedBottomLeft,
+                BoxDraw::RoundedBottomRight,
+            ),
+            BorderKind::Double => (
+                BoxDraw::Horizontal,
+                BoxDraw::Vertical,
+                BoxDraw::DoubleTopLeft,
+                BoxDraw::DoubleTopRight,
+                BoxDraw::DoubleBottomLeft,
+                BoxDraw::DoubleBottomRight,
+            ),
+        }
+    }
 }
 
 /// Basic ANSI colors used for foreground and background styling.

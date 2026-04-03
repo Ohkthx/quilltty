@@ -5,6 +5,7 @@ use crate::{
     style::{Glyph, Style},
     surface::Pane,
     ui::{
+        WidgetRender,
         traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
         widget::{InteractionStyle, WidgetState},
     },
@@ -223,76 +224,20 @@ impl TextWidget {
         self.lines.is_empty()
     }
 
-    /// Renders the widget into `rect` within the parent pane.
-    pub(crate) fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
+    /// Resolves the effective style for a span.
+    fn resolved_span_style(&self, interaction_style: Style, span_style: Style) -> Style {
+        if interaction_style == Style::default() {
+            span_style
+        } else {
+            interaction_style
         }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        let interaction_style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, interaction_style);
-
-        let mut out_y = 0;
-
-        'outer: for line in &self.lines {
-            let mut out_x = 0;
-
-            for span in line.spans() {
-                let span_style = if interaction_style == Style::default() {
-                    span.style
-                } else {
-                    interaction_style
-                };
-
-                for ch in span.text.chars() {
-                    if out_x >= rect.width {
-                        if self.wrap {
-                            out_x = 0;
-                            out_y += 1;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    if out_y >= rect.height {
-                        break 'outer;
-                    }
-
-                    pane.set(
-                        Point::new(rect.x + out_x, rect.y + out_y),
-                        Glyph::from(ch).with_style(span_style),
-                    );
-                    out_x += 1;
-                }
-
-                if !self.wrap && out_x >= rect.width {
-                    break;
-                }
-            }
-
-            out_y += 1;
-            if out_y >= rect.height {
-                break;
-            }
-        }
-
-        self.state.damaged = false;
     }
 
-    /// Clears the widget's drawing area using `style`.
-    fn clear_content(&self, pane: &mut Pane, rect: Rect, style: Style) {
-        for y in 0..rect.height {
-            for x in 0..rect.width {
-                pane.set(
-                    Point::new(rect.x + x, rect.y + y),
-                    Glyph::from(' ').with_style(style),
-                );
-            }
+    /// Flushes one prepared row into the pane.
+    fn flush_row(&self, pane: &mut Pane, rect: Rect, row: usize, glyphs: &mut Vec<Glyph>) {
+        if row < rect.height && !glyphs.is_empty() {
+            pane.write_glyphs(Point::new(rect.x, rect.y + row), glyphs);
+            glyphs.clear();
         }
     }
 }
@@ -318,3 +263,61 @@ impl HasInteractionStyle for TextWidget {
 }
 
 impl WidgetBehavior for TextWidget {}
+
+impl WidgetRender for TextWidget {
+    /// Renders the widget into `rect` within the parent pane.
+    fn render(&mut self, pane: &mut Pane, rect: Rect) {
+        if !self.state.damaged {
+            return;
+        }
+
+        if rect.width == 0 || rect.height == 0 {
+            self.state.damaged = false;
+            return;
+        }
+
+        let interaction_style = self.interaction.style(&self.state);
+        self.clear_content(pane, rect, interaction_style);
+
+        let mut out_y = 0;
+        let mut row = Vec::with_capacity(rect.width);
+
+        'outer: for line in &self.lines {
+            row.clear();
+
+            for span in line.spans() {
+                let span_style = self.resolved_span_style(interaction_style, span.style);
+
+                for ch in span.text.chars() {
+                    if row.len() >= rect.width {
+                        if self.wrap {
+                            self.flush_row(pane, rect, out_y, &mut row);
+                            out_y += 1;
+
+                            if out_y >= rect.height {
+                                break 'outer;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+
+                    row.push(Glyph::from(ch).with_style(span_style));
+                }
+
+                if !self.wrap && row.len() >= rect.width {
+                    break;
+                }
+            }
+
+            self.flush_row(pane, rect, out_y, &mut row);
+            out_y += 1;
+
+            if out_y >= rect.height {
+                break;
+            }
+        }
+
+        self.state.damaged = false;
+    }
+}

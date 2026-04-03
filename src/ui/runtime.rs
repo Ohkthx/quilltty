@@ -8,7 +8,7 @@ use crate::{
     prelude::*,
     render::{Compositor, Renderer},
     style::Glyph,
-    surface::HitTarget,
+    surface::{HitTarget, PaneAction},
     ui::{PaneElement, PaneHit, WidgetAction},
 };
 
@@ -213,15 +213,21 @@ impl Ui {
                         }
                     }
 
-                    PaneElement::Title | PaneElement::Border => self.begin_pane_drag(
-                        pane_id,
-                        hit,
-                        DragMode::Move {
-                            grab_offset: hit.local,
-                        },
-                    ),
+                    _ => match self.canvas.action_for_hit(pane_id, hit.element, hit.local) {
+                        PaneAction::BeginMove { grab_offset } => {
+                            self.begin_pane_drag(pane_id, hit, DragMode::Move { grab_offset })
+                        }
 
-                    PaneElement::Resize => self.begin_pane_drag(pane_id, hit, DragMode::Resize),
+                        PaneAction::BeginResize => {
+                            self.begin_pane_drag(pane_id, hit, DragMode::Resize)
+                        }
+
+                        PaneAction::FocusOnly | PaneAction::None => {
+                            self.focus_widget(None);
+                            self.clear_hover();
+                            UiEvent::PanePressed { pane_id, hit }
+                        }
+                    },
                 }
             }
         }

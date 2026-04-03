@@ -87,90 +87,6 @@ impl SliderWidget {
 
         (new != old).then_some(new)
     }
-
-    /// Renders the slider onto its parent `Pane`.
-    pub(crate) fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        let style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, style);
-
-        let label = self.label.as_deref().unwrap_or("");
-        let mut x = 0;
-
-        for ch in label.chars().take(rect.width) {
-            pane.set(
-                Point::new(rect.x + x, rect.y),
-                Glyph::from(ch).with_style(style),
-            );
-            x += 1;
-        }
-
-        let label_len = label.chars().count().min(rect.width);
-        let frame_len = 2;
-        let bar_len = rect.width.saturating_sub(label_len + frame_len);
-
-        if rect.width > label_len {
-            pane.set(
-                Point::new(rect.x + x, rect.y),
-                Glyph::from('[').with_style(style),
-            );
-            x += 1;
-        }
-
-        let range = (self.max - self.min).abs();
-        let ratio = if range == 0.0 {
-            1.0
-        } else {
-            ((self.value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
-        };
-
-        let position = if bar_len == 0 {
-            0
-        } else {
-            ((ratio * (bar_len.saturating_sub(1)) as f64).round() as usize)
-                .min(bar_len.saturating_sub(1))
-        };
-
-        for bar_x in 0..bar_len {
-            let glyph = if bar_x == position {
-                self.glyph
-            } else {
-                Glyph::from('-').with_style(style)
-            };
-
-            pane.set(Point::new(rect.x + x, rect.y), glyph);
-            x += 1;
-        }
-
-        if rect.width >= label_len + 2 {
-            pane.set(
-                Point::new(rect.x + x, rect.y),
-                Glyph::from(']').with_style(style),
-            );
-        }
-
-        self.state.damaged = false;
-    }
-
-    /// Fills the widget area with spaces using the active background/style.
-    fn clear_content(&self, pane: &mut Pane, rect: Rect, style: Style) {
-        for y in 0..rect.height {
-            for x in 0..rect.width {
-                pane.set(
-                    Point::new(rect.x + x, rect.y + y),
-                    Glyph::from(' ').with_style(style),
-                );
-            }
-        }
-    }
 }
 
 impl HasWidgetState for SliderWidget {
@@ -202,5 +118,76 @@ impl WidgetBehavior for SliderWidget {
 
     fn release_action(&mut self, _focused: bool) -> WidgetAction {
         WidgetAction::Released
+    }
+}
+
+impl WidgetRender for SliderWidget {
+    /// Renders the slider onto its parent `Pane`.
+    fn render(&mut self, pane: &mut Pane, rect: Rect) {
+        if !self.state.damaged {
+            return;
+        }
+
+        if rect.width == 0 || rect.height == 0 {
+            self.state.damaged = false;
+            return;
+        }
+
+        let style = self.interaction.style(&self.state);
+        self.clear_content(pane, rect, style);
+
+        let label = self.label.as_deref().unwrap_or("");
+        let label_len = label.chars().count().min(rect.width);
+        let frame_len = 2;
+        let bar_len = rect.width.saturating_sub(label_len + frame_len);
+
+        let range = (self.max - self.min).abs();
+        let ratio = if range == 0.0 {
+            1.0
+        } else {
+            ((self.value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
+        };
+
+        let position = if bar_len == 0 {
+            0
+        } else {
+            ((ratio * (bar_len.saturating_sub(1)) as f64).round() as usize)
+                .min(bar_len.saturating_sub(1))
+        };
+
+        let mut row = Vec::with_capacity(rect.width);
+
+        row.extend(
+            label
+                .chars()
+                .take(rect.width)
+                .map(|ch| Glyph::from(ch).with_style(style)),
+        );
+
+        if row.len() < rect.width {
+            row.push(Glyph::from('[').with_style(style));
+        }
+
+        for bar_x in 0..bar_len {
+            if row.len() >= rect.width {
+                break;
+            }
+
+            let glyph = if bar_x == position {
+                self.glyph
+            } else {
+                Glyph::from('-').with_style(style)
+            };
+
+            row.push(glyph);
+        }
+
+        if row.len() < rect.width && rect.width >= label_len + 2 {
+            row.push(Glyph::from(']').with_style(style));
+        }
+
+        self.write_glyph_row(pane, rect, 0, &row);
+
+        self.state.damaged = false;
     }
 }

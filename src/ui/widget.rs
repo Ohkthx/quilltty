@@ -35,7 +35,7 @@ use crate::{
     geom::{Point, Rect},
     style::Style,
     surface::Pane,
-    ui::traits::{HasWidgetState, WidgetBehavior},
+    ui::traits::{HasWidgetState, WidgetBehavior, WidgetRender},
 };
 
 #[derive(Debug, Clone, PartialEq)]

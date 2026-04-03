@@ -10,6 +10,10 @@ use crate::{
     style::{Glyph, Rune, Style},
 };
 
+/// Z-Layer for rendering / priority.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Layer(i32);
+
 /// A span of damaged data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Span {
@@ -57,12 +61,6 @@ impl DamagedRow {
     #[inline]
     pub(crate) fn clear(&mut self) {
         *self = Self::Clean;
-    }
-
-    /// Marks a single cell as damaged.
-    #[inline]
-    pub(crate) fn mark(&mut self, x: usize) {
-        self.mark_range(x, x + 1);
     }
 
     /// Marks a span as damaged, where `end` is exclusive.

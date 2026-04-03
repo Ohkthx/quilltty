@@ -7,7 +7,7 @@ use crate::{
     style::{Glyph, Style},
     surface::Pane,
     ui::{
-        InteractionStyle, WidgetAction,
+        InteractionStyle, WidgetAction, WidgetRender,
         traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
         widget::WidgetState,
     },
@@ -127,29 +127,6 @@ impl InputWidget {
         std::mem::take(&mut self.buffer)
     }
 
-    /// Renders the `InputWidget` onto its parent `Pane`.
-    pub(crate) fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        let Rect { width, height, .. } = rect;
-        if width == 0 || height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        self.clear_content(pane, rect);
-
-        if height > 1 {
-            self.render_multiline(pane, rect);
-        } else {
-            self.render_single_line(pane, rect);
-        }
-
-        self.state.damaged = false;
-    }
-
     /// Renders a multiline `InputWidget`.
     fn render_multiline(&self, pane: &mut Pane, rect: Rect) {
         let Rect { x, y, width, .. } = rect;
@@ -240,25 +217,6 @@ impl InputWidget {
             .unwrap_or(0)
     }
 
-    /// Clears the widget's drawing area in the `Pane`.
-    fn clear_content(&self, pane: &mut Pane, rect: Rect) {
-        let Rect {
-            x: ox,
-            y: oy,
-            width,
-            height,
-        } = rect;
-
-        for y in 0..height {
-            for x in 0..width {
-                pane.set(
-                    Point::new(ox + x, oy + y),
-                    Glyph::from(' ').with_style(self.style),
-                );
-            }
-        }
-    }
-
     /// Draws text into the `Pane`.
     fn draw_text(
         &self,
@@ -268,8 +226,6 @@ impl InputWidget {
         label: bool,
         width: usize,
     ) -> usize {
-        let mut written = 0;
-
         let base_style = if label { self.label_style } else { self.style };
         let style = if base_style != Style::default() {
             base_style
@@ -277,12 +233,15 @@ impl InputWidget {
             self.interaction.style(&self.state)
         };
 
-        for (i, ch) in text.chars().take(width).enumerate() {
-            pane.set(
-                Point::new(origin.x + i, origin.y),
-                Glyph::from(ch).with_style(style),
-            );
-            written += 1;
+        let glyphs: Vec<Glyph> = text
+            .chars()
+            .take(width)
+            .map(|ch| Glyph::from(ch).with_style(style))
+            .collect();
+
+        let written = glyphs.len();
+        if written > 0 {
+            pane.write_glyphs(origin, &glyphs);
         }
 
         written
@@ -328,5 +287,30 @@ impl WidgetBehavior for InputWidget {
         }
 
         WidgetAction::InputChanged
+    }
+}
+
+impl WidgetRender for InputWidget {
+    /// Renders the `InputWidget` onto its parent `Pane`.
+    fn render(&mut self, pane: &mut Pane, rect: Rect) {
+        if !self.state.damaged {
+            return;
+        }
+
+        let Rect { width, height, .. } = rect;
+        if width == 0 || height == 0 {
+            self.state.damaged = false;
+            return;
+        }
+
+        self.clear_content(pane, rect, self.style);
+
+        if height > 1 {
+            self.render_multiline(pane, rect);
+        } else {
+            self.render_single_line(pane, rect);
+        }
+
+        self.state.damaged = false;
     }
 }

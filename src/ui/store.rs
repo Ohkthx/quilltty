@@ -1,12 +1,15 @@
 //! File: src/ui/store.rs
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     Canvas, PaneId,
     geom::{Point, Rect},
     prelude::*,
-    surface::indexed_vec::{IndexedVec, Keyed},
+    surface::{
+        Layer,
+        indexed_vec::{IndexedVec, Keyed},
+    },
     ui::Widget,
 };
 
@@ -41,7 +44,8 @@ pub enum WidgetLayout {
 }
 
 impl WidgetLayout {
-    /// Converts into a local rect.
+    /// Resolves the widget layout against the pane's current content rect.
+    #[inline]
     fn as_local(&self, content: &Rect) -> Rect {
         match *self {
             WidgetLayout::Fixed(rect) => rect,
@@ -75,11 +79,11 @@ impl WidgetLayout {
     }
 }
 
-/// An entry representing a widget instance, including geometry and render state.
+/// Stores one widget plus its visibility, layer, and layout metadata.
 pub(crate) struct WidgetEntry {
     id: WidgetId,         // Unique identifier.
     layout: WidgetLayout, // Bounds for the widget.
-    z_layer: i16,         // Layer the widget should be rendered at.
+    z_layer: Layer,       // Layer the widget should be rendered at.
     visible: bool,        // If the widget can be seen.
     enabled: bool,        // If the widget is enabled.
     widget: Widget,       // Actual widget data.
@@ -91,160 +95,150 @@ impl Keyed<WidgetId> for WidgetEntry {
     }
 }
 
-/// Holds the widgets for a specific `PaneId`.
+/// Holds widgets for a single pane plus a pane-level damage marker.
 pub(crate) struct PaneWidgets {
-    damaged: bool,                              // Marker for changes.
-    entries: IndexedVec<WidgetId, WidgetEntry>, // Widgets contained.
+    full_damaged: bool,
+    damaged_widgets: HashSet<WidgetId>,
+    entries: IndexedVec<WidgetId, WidgetEntry>,
 }
 
 impl Default for PaneWidgets {
     fn default() -> Self {
         Self {
-            damaged: false,
+            full_damaged: false,
+            damaged_widgets: HashSet::new(),
             entries: IndexedVec::new(),
         }
     }
 }
 
-/// Builds widgets and requires `.build()` to finalize insertion.
-struct WidgetBuilder<'a> {
-    store: &'a mut WidgetStore,   // Reference to the widget store.
-    pane_id: PaneId,              // Identifier for the parent `Pane`.
-    widget: Option<Widget>,       // Widget to insert.
-    layout: Option<WidgetLayout>, // Pane content-local positioning.
-}
-
-impl<'a> WidgetBuilder<'a> {
-    /// Creates a new builder for a `WidgetEntry`.
-    fn new(pane_id: PaneId, store: &'a mut WidgetStore) -> Self {
-        Self {
-            store,
-            pane_id,
-            widget: None,
-            layout: None,
-        }
-    }
-
-    /// Assigns the widget to the builder.
-    #[must_use]
-    fn with_widget(mut self, widget: impl Into<Widget>) -> Self {
-        self.widget = Some(widget.into());
-        self
-    }
-
-    /// Positioning must be local to the Panes content area.
-    #[must_use]
-    fn with_layout(mut self, layout: WidgetLayout) -> Self {
-        self.layout = Some(layout);
-        self
-    }
-
-    /// Creates a new widget, assigning its parent as `PaneId`.
-    #[must_use]
-    fn build(self) -> WidgetId {
-        let widget = self.widget.expect("Widget is required for WidgetBuilder.");
-        let layout = self.layout.expect("Layout is required for WidgetBuilder.");
-
-        let store = self.store;
-
-        let pane_id = self.pane_id;
-        let widget_id = WidgetId(store.next_id);
-        store.next_id += 1;
-
-        let widget_entry = WidgetEntry {
-            id: widget_id,
-            layout,
-            z_layer: 1,
-            visible: true,
-            enabled: true,
-            widget,
-        };
-
-        let pane_widgets = store.by_pane.entry(pane_id).or_default();
-        pane_widgets.damaged = true;
-
-        let z_layer = widget_entry.z_layer;
-        let idx = pane_widgets
-            .entries
-            .as_slice()
-            .partition_point(|e| e.z_layer <= z_layer);
-
-        pane_widgets.entries.insert_at(idx, widget_entry);
-        store.index.insert(widget_id, pane_id);
-
-        widget_id
-    }
-}
-
-/// Stores widgets for panes and orchestrates rendering, focus, and interactions.
+/// Stores widgets by pane and tracks hover, pressed, and focused state.
 #[derive(Default)]
 pub struct WidgetStore {
-    next_id: u32,                          // Next `WidgetId` to assign.
-    by_pane: HashMap<PaneId, PaneWidgets>, // PaneId => widgets.
-    index: HashMap<WidgetId, PaneId>,      // Ownership lookup.
-    hovered: Option<WidgetId>,             // Currently hovered widget.
-    pressed: Option<WidgetId>,             // Currently pressed widget.
-    focused: Option<WidgetId>,             // Currently focused widget.
+    next_id: u32,
+    by_pane: HashMap<PaneId, PaneWidgets>,
+    index: HashMap<WidgetId, PaneId>,
+    hovered: Option<WidgetId>,
+    pressed: Option<WidgetId>,
+    focused: Option<WidgetId>,
 }
 
 impl WidgetStore {
-    /// Creates new storage for widgets mapped to parent panes.
+    /// Creates an empty widget store.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Returns a builder to create a new widget entry.
+    /// Inserts a widget directly without routing through an internal builder.
     pub fn add_widget(
         &mut self,
         pane_id: PaneId,
         widget: impl Into<Widget>,
         layout: WidgetLayout,
     ) -> WidgetId {
-        WidgetBuilder::new(pane_id, self)
-            .with_widget(widget)
-            .with_layout(layout)
-            .build()
+        let widget_id = WidgetId(self.next_id);
+        self.next_id += 1;
+
+        let widget_entry = WidgetEntry {
+            id: widget_id,
+            layout,
+            z_layer: Layer::default(),
+            visible: true,
+            enabled: true,
+            widget: widget.into(),
+        };
+
+        let pane_widgets = self.by_pane.entry(pane_id).or_default();
+        pane_widgets.full_damaged = true;
+        pane_widgets.damaged_widgets.insert(widget_id);
+
+        // Keeps entries ordered so hit-testing and rendering stay consistent.
+        let idx = pane_widgets
+            .entries
+            .as_slice()
+            .partition_point(|e| e.z_layer <= widget_entry.z_layer);
+
+        pane_widgets.entries.insert_at(idx, widget_entry);
+        self.index.insert(widget_id, pane_id);
+
+        widget_id
     }
 
-    /// Renders all visible and enabled widgets into their parent panes.
-    pub fn render_into(&mut self, canvas: &mut Canvas) {
-        for (&pane_id, widgets) in self.by_pane.iter_mut() {
-            if !widgets.damaged {
-                continue;
-            }
+    /// Returns true when any pane still has widget damage to flush.
+    #[inline]
+    pub fn has_damage(&self) -> bool {
+        self.by_pane
+            .values()
+            .any(|pane| pane.full_damaged || !pane.damaged_widgets.is_empty())
+    }
 
-            let pane_is_focused = canvas.focused() == Some(pane_id);
-            let focused_widget = self.focused;
-            let mut pane_cursor = None;
+    /// Renders one widget entry using the cached pane content rect.
+    fn render_entry(
+        entry: &mut WidgetEntry,
+        pane: &mut Pane,
+        content_rect: Rect,
+        pane_is_focused: bool,
+        focused_widget: Option<WidgetId>,
+        force_damage: bool,
+    ) {
+        if !entry.visible || !entry.enabled {
+            return;
+        }
 
-            for entry in widgets.entries.iter_mut() {
-                if !entry.visible || !entry.enabled {
-                    continue;
-                }
+        let rect = entry.layout.as_local(&content_rect);
 
-                if let Some(pane) = canvas.pane_mut(pane_id) {
-                    let rect = entry.layout.as_local(&pane.content_rect());
-                    entry.widget.render(pane, rect);
-                }
+        if force_damage {
+            entry.widget.set_damaged(true); // Forced redraw for full pane damage.
+        }
 
-                if pane_is_focused
-                    && Some(entry.id) == focused_widget
-                    && let Some(pane) = canvas.pane(pane_id)
-                {
-                    let rect = entry.layout.as_local(&pane.content_rect());
-                    pane_cursor = entry.widget.cursor_pos(pane, rect);
-                }
-            }
+        entry.widget.render(pane, rect);
 
-            if pane_is_focused {
-                canvas.set_cursor(pane_cursor);
-            }
-
-            widgets.damaged = false;
+        if pane_is_focused && focused_widget == Some(entry.id) {
+            entry.widget.cursor_pos(pane, rect);
         }
     }
 
-    /// Assigns the current focused widget.
+    /// Renders only dirty widgets unless the pane needs a full layout pass.
+    pub fn render_into(&mut self, canvas: &mut Canvas) {
+        let focused_widget = self.focused;
+
+        for (&pane_id, widgets) in self.by_pane.iter_mut() {
+            if !widgets.full_damaged && widgets.damaged_widgets.is_empty() {
+                continue;
+            }
+
+            let Some(content_rect) = canvas.pane(pane_id).map(|p| p.content_rect()) else {
+                continue;
+            };
+
+            let pane_is_focused = canvas.focused() == Some(pane_id);
+            let full_damaged = widgets.full_damaged;
+            let damaged_widgets = std::mem::take(&mut widgets.damaged_widgets);
+
+            if let Some(pane) = canvas.pane_mut(pane_id) {
+                // Preserve stable widget z-order during partial redraws by walking
+                // the ordered entries and filtering by the dirty set.
+                for entry in widgets.entries.iter_mut() {
+                    if !full_damaged && !damaged_widgets.contains(&entry.id) {
+                        continue;
+                    }
+
+                    Self::render_entry(
+                        entry,
+                        pane,
+                        content_rect,
+                        pane_is_focused,
+                        focused_widget,
+                        full_damaged,
+                    );
+                }
+            }
+
+            widgets.full_damaged = false;
+        }
+    }
+
+    /// Assigns the current focused widget and updates focus flags.
     pub fn focus(&mut self, widget_id: Option<WidgetId>) {
         if self.focused == widget_id {
             return;
@@ -255,17 +249,18 @@ impl WidgetStore {
         }
 
         self.focused = widget_id;
+
         if let Some(new_id) = self.focused {
             let _ = self.edit(new_id, |w| w.set_focused(true));
         }
     }
 
-    /// Returns the currently focused `WidgetId`.
+    /// Returns the currently focused widget.
     pub fn focused(&self) -> Option<WidgetId> {
         self.focused
     }
 
-    /// Returns an immutable reference to the widget.
+    /// Returns an immutable reference to a widget.
     pub fn get(&self, widget_id: WidgetId) -> Option<&Widget> {
         let pane_id = self.index.get(&widget_id)?;
         let widgets = self.by_pane.get(pane_id)?;
@@ -273,17 +268,16 @@ impl WidgetStore {
         Some(&entry.widget)
     }
 
-    /// Edits a widget by its `WidgetId`.
+    /// Edits a widget and marks only its parent pane as needing render.
     pub fn edit<R>(&mut self, widget_id: WidgetId, f: impl FnOnce(&mut Widget) -> R) -> Option<R> {
         let pane_id = *self.index.get(&widget_id)?;
         let widgets = self.by_pane.get_mut(&pane_id)?;
-        widgets.damaged = true;
-
+        widgets.damaged_widgets.insert(widget_id);
         let entry = widgets.entries.get_mut(&widget_id)?;
         Some(f(&mut entry.widget))
     }
 
-    /// Returns the widget at a content-local position.
+    /// Hit-tests widgets using one cached pane content rect.
     pub fn widget_at(
         &self,
         canvas: &Canvas,
@@ -292,13 +286,14 @@ impl WidgetStore {
     ) -> Option<WidgetHit> {
         let pane_widgets = self.by_pane.get(&pane_id)?;
         let pane = canvas.pane(pane_id)?;
+        let content_rect = pane.content_rect();
 
         for entry in pane_widgets.entries.iter().rev() {
             if !entry.visible || !entry.enabled {
                 continue;
             }
 
-            let rect = entry.layout.as_local(&pane.content_rect());
+            let rect = entry.layout.as_local(&content_rect);
             if rect.contains_point(content_local) {
                 return Some(WidgetHit {
                     widget_id: entry.id,
@@ -328,7 +323,7 @@ impl WidgetStore {
         Some(hit)
     }
 
-    /// Clears the pressed state and updates hover for the previously pressed widget.
+    /// Clears pressed state and preserves hover if release stays on the widget.
     pub fn mouse_up(
         &mut self,
         canvas: &Canvas,
@@ -346,7 +341,7 @@ impl WidgetStore {
         hit
     }
 
-    /// Updates hover state and returns the widget hit, if any.
+    /// Updates hover state only when the hovered widget actually changes.
     pub fn hover(
         &mut self,
         canvas: &Canvas,
@@ -360,16 +355,18 @@ impl WidgetStore {
             if let Some(old) = self.hovered {
                 let _ = self.edit(old, |w| w.set_hovered(false));
             }
+
             if let Some(new_id) = new_hovered {
                 let _ = self.edit(new_id, |w| w.set_hovered(true));
             }
+
             self.hovered = new_hovered;
         }
 
         hit
     }
 
-    /// Clears the hover flag from the currently hovered widget.
+    /// Clears hover from the currently hovered widget, if any.
     pub fn clear_hover(&mut self) {
         if let Some(old) = self.hovered.take() {
             let _ = self.edit(old, |w| w.set_hovered(false));
@@ -381,33 +378,29 @@ impl WidgetStore {
         self.pressed
     }
 
-    /// Returns the current content-local rect for a widget.
+    /// Resolves one widget rect using one cached pane content rect.
     pub fn widget_rect(&self, canvas: &Canvas, widget_id: WidgetId) -> Option<Rect> {
         let pane_id = *self.index.get(&widget_id)?;
         let widgets = self.by_pane.get(&pane_id)?;
         let entry = widgets.entries.get(&widget_id)?;
         let pane = canvas.pane(pane_id)?;
-        Some(entry.layout.as_local(&pane.content_rect()))
+        let content_rect = pane.content_rect();
+        Some(entry.layout.as_local(&content_rect))
     }
 
-    /// Lookup the parent `PaneId` for the widget.
+    /// Returns the parent pane for a widget.
     pub fn pane_id_of(&self, widget_id: WidgetId) -> Option<PaneId> {
         self.index.get(&widget_id).copied()
     }
 
-    /// Marks all widgets for the `Pane` as damaged to force a redraw.
+    /// Marks every widget in a pane as needing redraw.
     pub fn invalidate_pane(&mut self, pane_id: PaneId) {
-        let Some(pane_widgets) = self.by_pane.get_mut(&pane_id) else {
-            return;
+        if let Some(pane_widgets) = self.by_pane.get_mut(&pane_id) {
+            pane_widgets.full_damaged = true;
         };
-
-        pane_widgets.damaged = true;
-        for entry in pane_widgets.entries.iter_mut() {
-            entry.widget.set_damaged(true);
-        }
     }
 
-    /// Invalids a single widget forcing a redraw.
+    /// Marks one widget as needing redraw.
     pub fn invalidate_widget(&mut self, widget_id: WidgetId) {
         let Some(pane_id) = self.index.get(&widget_id).copied() else {
             return;
@@ -417,20 +410,17 @@ impl WidgetStore {
             return;
         };
 
-        pane_widgets.damaged = true;
+        pane_widgets.damaged_widgets.insert(widget_id);
+
         if let Some(entry) = pane_widgets.entries.get_mut(&widget_id) {
             entry.widget.set_damaged(true);
         }
     }
 
-    /// Invalids all widgets for all panes, forcing a full redraw.
+    /// Marks every widget in every pane as needing redraw.
     pub fn invalidate_all(&mut self) {
         for pane_widgets in self.by_pane.values_mut() {
-            pane_widgets.damaged = true;
-
-            for entry in pane_widgets.entries.iter_mut() {
-                entry.widget.set_damaged(true);
-            }
+            pane_widgets.full_damaged = true;
         }
     }
 

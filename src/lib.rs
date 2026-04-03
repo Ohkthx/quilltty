@@ -7,7 +7,7 @@ pub mod prelude {
     pub use crate::ui::{
         ButtonWidget, Canvas, CheckboxWidget, HasInteractionStyle, InputWidget, LogWidget, Pane,
         PaneBuilder, PaneDragKind, PaneId, ProgressWidget, SliderWidget, TextWidget, Ui, UiEvent,
-        Widget, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
+        Widget, WidgetHit, WidgetId, WidgetLayout, WidgetRender, WidgetStore,
     };
 }
 
