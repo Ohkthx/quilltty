@@ -37,8 +37,8 @@ pub mod prelude {
     pub use crate::terminal::{Input, Terminal, TerminalOptions};
     pub use crate::ui::{
         ButtonWidget, CheckboxWidget, HasInteractionStyle, InputWidget, LogWidget, PaneDragKind,
-        ProgressWidget, SliderWidget, StyledLine, StyledSpan, TextWidget, Ui, UiEvent, WidgetHit,
-        WidgetId, WidgetLayout, WidgetRender,
+        PaneId, ProgressWidget, SliderWidget, StyledLine, StyledSpan, TextWidget, Ui, UiEvent,
+        WidgetHit, WidgetId, WidgetLayout, WidgetRender,
     };
 }
 

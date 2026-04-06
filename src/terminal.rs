@@ -12,6 +12,14 @@ use ::crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
 
 use crate::{crossterm::event::Event, geom::Point};
 
+/// Events that emitted from the input handler.
+pub enum AppEvent {
+    /// New input detected and emitted.
+    Input(Event),
+    /// No changes in action performed, ticked over.
+    Tick { dt: Duration },
+}
+
 /// Configuration for entering Quilltty's terminal mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TerminalOptions {
@@ -82,7 +90,7 @@ impl Drop for Terminal {
 
 /// Background reader for terminal events.
 pub struct Input {
-    rx: mpsc::Receiver<Event>,
+    rx: mpsc::Receiver<AppEvent>,
     stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<io::Result<()>>>,
 }
@@ -108,9 +116,11 @@ impl Input {
                 while !threaded_stop.load(Ordering::Relaxed) {
                     if event::poll(interval)? {
                         let ev = event::read()?;
-                        if tx.send(ev).is_err() {
+                        if tx.send(AppEvent::Input(ev)).is_err() {
                             break;
                         }
+                    } else {
+                        let _ = tx.try_send(AppEvent::Tick { dt: interval });
                     }
                 }
                 Ok(())
@@ -125,12 +135,12 @@ impl Input {
     }
 
     /// Returns one buffered event without blocking.
-    pub fn try_read(&self) -> Option<Event> {
+    pub fn try_read(&self) -> Option<AppEvent> {
         self.rx.try_recv().ok()
     }
 
     /// Returns an iterator over all currently buffered events without blocking.
-    pub fn drain(&self) -> impl Iterator<Item = Event> + '_ {
+    pub fn drain(&self) -> impl Iterator<Item = AppEvent> + '_ {
         self.rx.try_iter()
     }
 }

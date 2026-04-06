@@ -10,7 +10,7 @@ pub mod widget;
 
 pub use crate::surface::{Canvas, HitTarget, Pane, PaneBuilder, PaneElement, PaneHit, PaneId};
 
-pub use runtime::{PaneDragKind, Ui, UiEvent};
+pub use runtime::{PaneDragKind, PointerDrag, Ui, UiEvent};
 pub use store::{WidgetHit, WidgetId, WidgetLayout, WidgetStore};
 pub use traits::{HasInteractionStyle, WidgetRender};
 pub use widget::{

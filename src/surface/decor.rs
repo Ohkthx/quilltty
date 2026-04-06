@@ -61,10 +61,10 @@ impl PaneDecor {
 
     /// Renders the decoration into the pane.
     #[inline]
-    pub fn render(&self, pane: &mut Pane, focused: bool) {
+    pub fn render(&self, pane: &mut Pane, focused: bool, resize: bool) {
         match self {
             Self::None => {}
-            Self::Window(window) => window.render(pane, focused),
+            Self::Window(window) => window.render(pane, focused, resize),
         }
     }
 
@@ -153,9 +153,9 @@ impl WindowDecor {
     }
 
     /// Renders the decoration into the pane.
-    pub fn render(&self, pane: &mut Pane, focused: bool) {
+    pub fn render(&self, pane: &mut Pane, focused: bool, resize: bool) {
         if self.border.is_some() {
-            self.draw_border(pane, focused);
+            self.draw_border(pane, focused, resize);
             self.draw_title(pane, focused);
         } else {
             self.clear_header_row(pane);
@@ -210,7 +210,7 @@ impl WindowDecor {
     }
 
     /// Draws the border around the pane.
-    fn draw_border(&self, pane: &mut Pane, focused: bool) {
+    fn draw_border(&self, pane: &mut Pane, focused: bool, resize: bool) {
         let Some(kind) = self.border else {
             return;
         };
@@ -227,6 +227,7 @@ impl WindowDecor {
         };
 
         let (h, v, tl, tr, bl, br) = kind.glyphs();
+        let br = if resize { BorderKind::cross(kind) } else { br };
 
         pane.decor_raw_set(Point::new(0, 0), Glyph::from(tl).with_style(style));
         pane.decor_raw_set(Point::new(width - 1, 0), Glyph::from(tr).with_style(style));

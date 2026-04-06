@@ -1,6 +1,9 @@
 //! File: src/ui/runtime.rs
 
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    time::Duration,
+};
 
 use crate::{
     ButtonWidget, CheckboxWidget, InputWidget, LogWidget, ProgressWidget, SliderWidget, TextWidget,
@@ -19,16 +22,71 @@ pub enum PaneDragKind {
     Resize, // Pane is being resized from the bottom-right.
 }
 
+/// Stores any active pointer drag captured by the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerDrag {
+    PaneMove {
+        pane_id: PaneId,    // Pane currently being moved.
+        grab_offset: Point, // Pointer offset captured on press.
+    },
+    PaneResize {
+        pane_id: PaneId, // Pane currently being resized.
+    },
+    Content {
+        pane_id: PaneId,     // Pane whose content owns the drag.
+        button: MouseButton, // Mouse button that initiated the drag.
+        anchor: Point,       // Original screen-space drag anchor.
+        previous: Point,     // Previous screen-space pointer position.
+        current: Point,      // Latest screen-space pointer position.
+    },
+}
+
 /// High-level UI events emitted back to application code.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     None, // No UI action occurred.
 
     // Generic Pane events.
-    PanePressed { pane_id: PaneId, hit: PaneHit }, // Mouse pressed pane content with no widget hit.
-    PaneDragStart { pane_id: PaneId, kind: PaneDragKind }, // Pane drag has started.
-    PaneDragged { pane_id: PaneId, kind: PaneDragKind }, // Pane is actively being dragged.
-    PaneReleased { pane_id: PaneId, kind: PaneDragKind }, // Pane drag has ended.
+    PanePressed {
+        pane_id: PaneId,
+        hit: PaneHit,
+    }, // Mouse pressed pane content with no widget hit.
+    PaneDragStart {
+        pane_id: PaneId,
+        kind: PaneDragKind,
+    }, // Pane drag has started.
+    PaneDragged {
+        pane_id: PaneId,
+        kind: PaneDragKind,
+    }, // Pane is actively being dragged.
+    PaneReleased {
+        pane_id: PaneId,
+        kind: PaneDragKind,
+    }, // Pane drag has ended.
+
+    // Pane content drag events.
+    PaneContentDragStart {
+        pane_id: PaneId, // Pane whose content drag has started.
+        anchor: Point,   // Original screen-space drag anchor.
+        current: Point,  // Current screen-space pointer position.
+    },
+    PaneContentDragged {
+        pane_id: PaneId, // Pane whose content is being dragged.
+        anchor: Point,   // Original screen-space drag anchor.
+        previous: Point, // Previous screen-space pointer position.
+        current: Point,  // Current screen-space pointer position.
+    },
+    PaneContentHeld {
+        pane_id: PaneId, // Pane whose content drag is still active.
+        anchor: Point,   // Original screen-space drag anchor.
+        current: Point,  // Current screen-space pointer position.
+        dt: Duration,    // Tick duration since the last held update.
+    },
+    PaneContentDragEnd {
+        pane_id: PaneId, // Pane whose content drag has ended.
+        anchor: Point,   // Original screen-space drag anchor.
+        current: Point,  // Final screen-space pointer position.
+    },
 
     // Generic Widget interactions.
     WidgetHovered(WidgetHit),  // Pointer moved over a widget.
@@ -37,43 +95,30 @@ pub enum UiEvent {
     WidgetClicked(WidgetHit),  // Widget was activated by click.
 
     // Widget-specific events.
-    SliderChanged { widget_id: WidgetId, value: f64 }, // Slider value changed.
-    CheckboxChanged { widget_id: WidgetId, checked: bool }, // Checkbox toggled state.
-    InputChanged { widget_id: WidgetId },              // Input widget text changed.
-    InputSubmitted { widget_id: WidgetId, value: String }, // Input widget was submitted.
-}
-
-/// Internal drag modes used while tracking pane drag state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DragMode {
-    Move { grab_offset: Point }, // Stores pointer offset while moving a pane.
-    Resize,                      // Resizes the pane using the current pointer position.
-}
-
-impl DragMode {
-    /// Converts the internal drag mode into the public drag kind.
-    fn kind(self) -> PaneDragKind {
-        match self {
-            Self::Move { .. } => PaneDragKind::Move,
-            Self::Resize => PaneDragKind::Resize,
-        }
-    }
-}
-
-/// Internal state for an active pane drag operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct DragState {
-    pane_id: PaneId, // Pane currently being dragged.
-    mode: DragMode,  // Current drag behavior.
+    SliderChanged {
+        widget_id: WidgetId,
+        value: f64,
+    }, // Slider value changed.
+    CheckboxChanged {
+        widget_id: WidgetId,
+        checked: bool,
+    }, // Checkbox toggled state.
+    InputChanged {
+        widget_id: WidgetId,
+    }, // Input widget text changed.
+    InputSubmitted {
+        widget_id: WidgetId,
+        value: String,
+    }, // Input widget was submitted.
 }
 
 /// Coordinates pane rendering, widget state, and pointer-driven pane actions.
 pub struct Ui {
-    canvas: Canvas,          // Backing surface containing panes.
-    compositor: Compositor,  // Flattens pane damage into a renderable frame.
-    renderer: Renderer,      // Writes frame differences to the terminal.
-    widgets: WidgetStore,    // Tracks widgets, focus, hover, and pressed state.
-    drag: Option<DragState>, // Active pane drag session, if any.
+    canvas: Canvas,            // Backing surface containing panes.
+    compositor: Compositor,    // Flattens pane damage into a renderable frame.
+    renderer: Renderer,        // Writes frame differences to the terminal.
+    widgets: WidgetStore,      // Tracks widgets, focus, hover, and pressed state.
+    drag: Option<PointerDrag>, // Active pointer drag session, if any.
 }
 
 impl Ui {
@@ -132,11 +177,34 @@ impl Ui {
         }
     }
 
+    /// Advances tick-aware UI behavior such as held pane-content dragging.
+    pub fn tick(&mut self, dt: Duration) -> UiEvent {
+        match self.drag {
+            Some(PointerDrag::Content {
+                pane_id,
+                anchor,
+                current,
+                ..
+            }) => UiEvent::PaneContentHeld {
+                pane_id,
+                anchor,
+                current,
+                dt,
+            },
+
+            _ => UiEvent::None,
+        }
+    }
+
     /// Dispatches a raw mouse event into the appropriate UI handler.
     pub fn mouse(&mut self, mouse: MouseEvent) -> UiEvent {
         let pos: Point = (mouse.column, mouse.row).into();
 
         match mouse.kind {
+            MouseEventKind::Moved if matches!(self.drag, Some(PointerDrag::Content { .. })) => {
+                self.mouse_drag(pos)
+            }
+
             MouseEventKind::Moved => self.mouse_move(pos),
             MouseEventKind::Down(MouseButton::Left) => self.mouse_down(pos),
             MouseEventKind::Drag(MouseButton::Left) => self.mouse_drag(pos),
@@ -224,11 +292,14 @@ impl Ui {
 
                     _ => match self.canvas.action_for_hit(pane_id, hit.element, hit.local) {
                         PaneAction::BeginMove { grab_offset } => {
-                            self.begin_pane_drag(pane_id, hit, DragMode::Move { grab_offset })
+                            self.begin_pointer_drag(PointerDrag::PaneMove {
+                                pane_id,
+                                grab_offset,
+                            })
                         }
 
                         PaneAction::BeginResize => {
-                            self.begin_pane_drag(pane_id, hit, DragMode::Resize)
+                            self.begin_pointer_drag(PointerDrag::PaneResize { pane_id })
                         }
 
                         PaneAction::FocusOnly | PaneAction::None => {
@@ -242,27 +313,59 @@ impl Ui {
         }
     }
 
-    /// Applies an in-progress pane move or resize using the current pointer position.
+    /// Applies an in-progress pane move, pane resize, or pane-content drag.
     pub fn mouse_drag(&mut self, pos: Point) -> UiEvent {
-        if let Some(drag) = self.drag {
-            match drag.mode {
-                DragMode::Move { grab_offset } => {
+        if let Some(pointer_drag) = self.drag {
+            match pointer_drag {
+                PointerDrag::PaneMove {
+                    pane_id,
+                    grab_offset,
+                } => {
                     let new_origin = pos.saturating_sub(grab_offset);
-                    self.move_pane(drag.pane_id, new_origin, true);
+                    self.move_pane(pane_id, new_origin, true);
+
+                    return UiEvent::PaneDragged {
+                        pane_id,
+                        kind: PaneDragKind::Move,
+                    };
                 }
-                DragMode::Resize => {
-                    if let Some(rect) = self.canvas.pane(drag.pane_id).map(|p| p.rect()) {
+
+                PointerDrag::PaneResize { pane_id } => {
+                    if let Some(rect) = self.canvas.pane(pane_id).map(|p| p.rect()) {
                         let width = pos.x.saturating_sub(rect.x).saturating_add(1);
                         let height = pos.y.saturating_sub(rect.y).saturating_add(1);
-                        self.resize_pane(drag.pane_id, width, height);
+                        self.resize_pane(pane_id, width, height);
                     }
+
+                    return UiEvent::PaneDragged {
+                        pane_id,
+                        kind: PaneDragKind::Resize,
+                    };
+                }
+
+                PointerDrag::Content {
+                    pane_id,
+                    button,
+                    anchor,
+                    previous: _,
+                    current,
+                } => {
+                    self.drag = Some(PointerDrag::Content {
+                        pane_id,
+                        button,
+                        anchor,
+                        previous: current,
+                        current: pos,
+                    });
+
+                    return UiEvent::PaneContentDragged {
+                        pane_id,
+                        anchor,
+                        previous: current,
+                        current: pos,
+                    };
                 }
             }
-
-            return UiEvent::PaneDragged {
-                pane_id: drag.pane_id,
-                kind: drag.mode.kind(),
-            };
         }
 
         let Some(hit) = self.pressed_widget_hit_at(pos) else {
@@ -283,12 +386,27 @@ impl Ui {
 
     /// Handles mouse release for dragging completion and widget activation.
     pub fn mouse_up(&mut self, pos: Point) -> UiEvent {
-        if let Some(drag) = self.drag.take() {
+        if let Some(pointer_drag) = self.drag.take() {
             self.sync_hover(pos);
 
-            return UiEvent::PaneReleased {
-                pane_id: drag.pane_id,
-                kind: drag.mode.kind(),
+            return match pointer_drag {
+                PointerDrag::PaneMove { pane_id, .. } => UiEvent::PaneReleased {
+                    pane_id,
+                    kind: PaneDragKind::Move,
+                },
+
+                PointerDrag::PaneResize { pane_id } => UiEvent::PaneReleased {
+                    pane_id,
+                    kind: PaneDragKind::Resize,
+                },
+
+                PointerDrag::Content {
+                    pane_id, anchor, ..
+                } => UiEvent::PaneContentDragEnd {
+                    pane_id,
+                    anchor,
+                    current: pos,
+                },
             };
         }
 
@@ -584,6 +702,46 @@ impl Ui {
 
 impl Ui {
     // =========================================================================
+    // Pointer Drag Control
+    // =========================================================================
+
+    /// Begins a captured content drag when the anchor is over the given pane's content.
+    pub fn begin_content_drag(
+        &mut self,
+        pane_id: PaneId,
+        anchor: Point,
+        button: MouseButton,
+    ) -> UiEvent {
+        let Some((hit_pane_id, _, _)) = self.content_hit_at(anchor) else {
+            return UiEvent::None;
+        };
+
+        if hit_pane_id != pane_id {
+            return UiEvent::None;
+        }
+
+        self.begin_pointer_drag(PointerDrag::Content {
+            pane_id,
+            button,
+            anchor,
+            previous: anchor,
+            current: anchor,
+        })
+    }
+
+    /// Returns the active pointer drag, if any.
+    pub fn active_pointer_drag(&self) -> Option<PointerDrag> {
+        self.drag
+    }
+
+    /// Cancels any active pointer drag session.
+    pub fn cancel_pointer_drag(&mut self) {
+        self.drag = None;
+    }
+}
+
+impl Ui {
+    // =========================================================================
     // Internal Helpers
     // =========================================================================
 
@@ -657,17 +815,34 @@ impl Ui {
         self.widgets.mouse_up(&self.canvas, pane_id, content_local)
     }
 
-    /// Starts dragging the given pane using the specified drag mode.
+    /// Starts the provided pointer drag and emits the corresponding UI event.
     #[inline]
-    fn begin_pane_drag(&mut self, pane_id: PaneId, _hit: PaneHit, mode: DragMode) -> UiEvent {
+    fn begin_pointer_drag(&mut self, pointer_drag: PointerDrag) -> UiEvent {
         self.focus_widget(None);
         self.clear_hover();
+        self.drag = Some(pointer_drag);
 
-        self.drag = Some(DragState { pane_id, mode });
+        match pointer_drag {
+            PointerDrag::PaneMove { pane_id, .. } => UiEvent::PaneDragStart {
+                pane_id,
+                kind: PaneDragKind::Move,
+            },
 
-        UiEvent::PaneDragStart {
-            pane_id,
-            kind: mode.kind(),
+            PointerDrag::PaneResize { pane_id } => UiEvent::PaneDragStart {
+                pane_id,
+                kind: PaneDragKind::Resize,
+            },
+
+            PointerDrag::Content {
+                pane_id,
+                anchor,
+                current,
+                ..
+            } => UiEvent::PaneContentDragStart {
+                pane_id,
+                anchor,
+                current,
+            },
         }
     }
 

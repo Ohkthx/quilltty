@@ -12,6 +12,7 @@ use crate::{
         backend::{DamagedRow, Layer},
         decor::PaneDecor,
         indexed_vec::IndexedVec,
+        pane,
         policy::PanePolicy,
     },
     ui::PaneElement,
@@ -224,14 +225,19 @@ impl Canvas {
             return;
         };
 
+        let Some(policy) = self.policies.remove(&pane_id) else {
+            return;
+        };
+
         let pane_rect = if let Some(pane) = self.pane_mut(pane_id) {
-            decor.render(pane, focused);
+            decor.render(pane, focused, policy.resizable);
             Some(pane.rect())
         } else {
             None
         };
 
         self.decor.insert(pane_id, decor);
+        self.policies.insert(pane_id, policy);
 
         if let Some(rect) = pane_rect {
             self.mark_damaged(rect);
