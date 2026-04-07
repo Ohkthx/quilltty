@@ -14,6 +14,12 @@ use crate::{
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Layer(i32);
 
+impl From<i32> for Layer {
+    fn from(value: i32) -> Self {
+        Layer(value)
+    }
+}
+
 /// A span of damaged data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Span {

@@ -91,7 +91,7 @@ impl PaneDecor {
 #[derive(Debug, Clone)]
 pub struct WindowDecor {
     pub border: Option<BorderKind>,
-    pub border_style: Style,
+    pub style: Style,
     pub title: Option<String>,
 }
 
@@ -99,13 +99,36 @@ impl Default for WindowDecor {
     fn default() -> Self {
         Self {
             border: None,
-            border_style: Style::default().with_fg(Color::White),
+            style: Style::default().with_fg(Color::White),
             title: None,
         }
     }
 }
 
 impl WindowDecor {
+    /// Creates a new instance of WindowDecor with default behavior.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Attach or remove a border from the decor on creation.
+    pub fn with_border(mut self, border: Option<BorderKind>) -> Self {
+        self.border = border;
+        self
+    }
+
+    /// Change the default style for the decor on creation.
+    pub fn with_style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
+    }
+
+    /// Attach or remove title from the decor on creation.
+    pub fn with_title(mut self, title: Option<String>) -> Self {
+        self.title = title;
+        self
+    }
+
     /// Returns the insets reserved by the window decoration.
     #[inline]
     pub fn insets(&self) -> Insets {
@@ -221,9 +244,9 @@ impl WindowDecor {
         }
 
         let style = if focused {
-            self.border_style.with_fg(Color::Red).bold()
+            self.style.with_fg(Color::Red).bold()
         } else {
-            self.border_style
+            self.style
         };
 
         let (h, v, tl, tr, bl, br) = kind.glyphs();
@@ -260,9 +283,9 @@ impl WindowDecor {
         }
 
         let style = if focused {
-            self.border_style.with_fg(Color::Red).bold()
+            self.style.with_fg(Color::Red).bold()
         } else {
-            self.border_style.bold()
+            self.style.bold()
         };
 
         let (start_x, max_len) = if self.border.is_some() {

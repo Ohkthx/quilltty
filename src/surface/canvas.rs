@@ -12,7 +12,6 @@ use crate::{
         backend::{DamagedRow, Layer},
         decor::PaneDecor,
         indexed_vec::IndexedVec,
-        pane,
         policy::PanePolicy,
     },
     ui::PaneElement,

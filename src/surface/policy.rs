@@ -32,7 +32,7 @@ impl Default for PanePolicy {
 impl PanePolicy {
     /// Resolves the action that should occur for the given pane element hit.
     #[inline]
-    pub fn action_for_hit(&self, element: PaneElement, local: Point) -> PaneAction {
+    pub(crate) fn action_for_hit(&self, element: PaneElement, local: Point) -> PaneAction {
         match element {
             PaneElement::Content => PaneAction::None,
 
@@ -50,17 +50,5 @@ impl PanePolicy {
 
             _ => PaneAction::None,
         }
-    }
-
-    /// Returns true if the given pane element may begin a move operation.
-    #[inline]
-    pub fn can_begin_move(&self, element: PaneElement) -> bool {
-        self.movable && matches!(element, PaneElement::Title | PaneElement::Border)
-    }
-
-    /// Returns true if the given pane element may begin a resize operation.
-    #[inline]
-    pub fn can_begin_resize(&self, element: PaneElement) -> bool {
-        self.resizable && matches!(element, PaneElement::Resize)
     }
 }

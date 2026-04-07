@@ -20,11 +20,16 @@ pub mod style {
 }
 
 pub mod geom {
-    pub use crate::surface::{Point, Rect, Size};
+    pub use crate::surface::{Insets, Point, Rect, Size};
 }
 
 pub mod render {
-    pub use crate::surface::{Compositor, Renderer};
+    pub use crate::surface::{Compositor, Layer, Renderer};
+}
+
+pub mod pane {
+    pub use crate::surface::{Pane, PaneAction, PaneBuilder, PaneElement, PaneHit, PaneId};
+    pub use crate::surface::{PaneDecor, PanePolicy, WindowDecor};
 }
 
 pub mod prelude {

@@ -97,9 +97,9 @@ impl<'a> PaneBuilder<'a> {
 
     /// Assigns if the `Pane` will have a specified border style.
     #[must_use]
-    pub fn border_style(mut self, style: Style) -> Self {
+    pub fn decor_style(mut self, style: Style) -> Self {
         if let PaneDecor::Window(window) = &mut self.decor {
-            window.border_style = style;
+            window.style = style;
         }
         self
     }
@@ -265,11 +265,6 @@ impl Pane {
     /// Writes a glyph directly in pane-local coordinates for decoration rendering.
     pub(crate) fn decor_raw_set(&mut self, pos: Point, glyph: Glyph) {
         self.raw_set(pos, glyph);
-    }
-
-    /// Clears the specified pane-local row for decoration redraw.
-    pub(crate) fn decor_clear_row(&mut self, y: usize, glyph: Glyph) {
-        self.raw_fill_row(y, 0, self.rect.width, glyph);
     }
 
     /// Fills a content-local rectangle with one glyph using row-wise writes.
