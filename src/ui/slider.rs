@@ -1,25 +1,21 @@
 //! File: src/ui/slider.rs
 
 use crate::{
-    Pane, WidgetRender,
-    prelude::*,
+    geom::Rect,
     style::{Glyph, Style},
-    ui::{
-        InteractionStyle, WidgetAction,
-        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
-        widget::WidgetState,
-    },
+    surface::Pane,
+    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState},
 };
 
 /// Shows slider in the form of a bar.
 pub struct SliderWidget {
-    pub(crate) state: WidgetState,     // Current state.
-    pub interaction: InteractionStyle, // Style for interaction.
-    label: Option<String>,             // Text to render on the slider.
-    glyph: Glyph,                      // Glyph to render to show slider.
-    min: f64,                          // Minimum value.
-    max: f64,                          // Maximum value.
-    value: f64,                        // Current slider.
+    pub(crate) state: WidgetState, // Current state.
+    interaction: InteractionStyle, // Style for interaction.
+    label: Option<String>,         // Text to render on the slider.
+    glyph: Glyph,                  // Glyph to render to show slider.
+    min: f64,                      // Minimum value.
+    max: f64,                      // Maximum value.
+    value: f64,                    // Current slider.
 }
 
 impl SliderWidget {
@@ -59,7 +55,8 @@ impl SliderWidget {
         }
     }
 
-    /// Updates the slider using a widget-local x position. Returns `Some(new_value)` only when the slider changes.
+    /// Updates the slider using a widget-local x position.
+    /// Returns `Some(new_value)` only when the slider changes.
     pub fn set_from_local_x(&mut self, local_x: usize, total_width: usize) -> Option<f64> {
         let label_len = self
             .label
@@ -90,7 +87,15 @@ impl SliderWidget {
     }
 }
 
-impl HasWidgetState for SliderWidget {
+impl Widget for SliderWidget {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn state(&self) -> &WidgetState {
         &self.state
     }
@@ -98,32 +103,15 @@ impl HasWidgetState for SliderWidget {
     fn state_mut(&mut self) -> &mut WidgetState {
         &mut self.state
     }
-}
 
-impl HasInteractionStyle for SliderWidget {
-    fn interaction(&self) -> &InteractionStyle {
-        &self.interaction
+    fn interaction(&self) -> Option<&InteractionStyle> {
+        Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> &mut InteractionStyle {
-        &mut self.interaction
-    }
-}
-
-impl WidgetBehavior for SliderWidget {
-    fn drag_action(&mut self, local_x: usize, width: usize) -> WidgetAction {
-        self.set_from_local_x(local_x, width)
-            .map(WidgetAction::SliderChanged)
-            .unwrap_or(WidgetAction::None)
+    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+        Some(&mut self.interaction)
     }
 
-    fn release_action(&mut self, _focused: bool) -> WidgetAction {
-        WidgetAction::Released
-    }
-}
-
-impl WidgetRender for SliderWidget {
-    /// Renders the slider onto its parent `Pane`.
     fn render(&mut self, pane: &mut Pane, rect: Rect) {
         if !self.state.damaged {
             return;
@@ -152,9 +140,9 @@ impl WidgetRender for SliderWidget {
         let position = if bar_len == 0 {
             0
         } else {
-            ((ratio * (bar_len.saturating_sub(1)) as f64).round() as usize)
-                .min(bar_len.saturating_sub(1))
-        };
+            (ratio * (bar_len.saturating_sub(1)) as f64).round() as usize
+        }
+        .min(bar_len.saturating_sub(1));
 
         let mut row = Vec::with_capacity(rect.width);
 
@@ -191,4 +179,16 @@ impl WidgetRender for SliderWidget {
 
         self.state.damaged = false;
     }
+
+    fn drag_action(&mut self, local_x: usize, width: usize) -> WidgetAction {
+        self.set_from_local_x(local_x, width)
+            .map(WidgetAction::SliderChanged)
+            .unwrap_or(WidgetAction::None)
+    }
+
+    fn release_action(&mut self, _focused: bool) -> WidgetAction {
+        WidgetAction::Released
+    }
 }
+
+impl StylableWidgetExt for SliderWidget {}

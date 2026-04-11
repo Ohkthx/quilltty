@@ -3,7 +3,6 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ButtonWidget, CheckboxWidget, InputWidget, LogWidget, ProgressWidget, SliderWidget, TextWidget,
     Widget,
     surface::{
         Canvas, Layer, Pane, PaneId, Point, Rect,
@@ -79,12 +78,12 @@ impl WidgetLayout {
 
 /// Stores one widget plus its visibility, layer, and layout metadata.
 pub(crate) struct WidgetEntry {
-    id: WidgetId,         // Unique identifier.
-    layout: WidgetLayout, // Bounds for the widget.
-    z_layer: Layer,       // Layer the widget should be rendered at.
-    visible: bool,        // If the widget can be seen.
-    enabled: bool,        // If the widget is enabled.
-    widget: Widget,       // Actual widget data.
+    id: WidgetId,            // Unique identifier.
+    layout: WidgetLayout,    // Bounds for the widget.
+    z_layer: Layer,          // Layer the widget should be rendered at.
+    visible: bool,           // If the widget can be seen.
+    enabled: bool,           // If the widget is enabled.
+    widget: Box<dyn Widget>, // Actual widget data.
 }
 
 impl Keyed<WidgetId> for WidgetEntry {
@@ -128,12 +127,10 @@ impl WidgetStore {
     }
 
     /// Inserts a widget directly without routing through an internal builder.
-    pub fn add_widget(
-        &mut self,
-        pane_id: PaneId,
-        widget: impl Into<Widget>,
-        layout: WidgetLayout,
-    ) -> WidgetId {
+    pub fn add_widget<W>(&mut self, pane_id: PaneId, widget: W, layout: WidgetLayout) -> WidgetId
+    where
+        W: Widget + 'static,
+    {
         let widget_id = WidgetId(self.next_id);
         self.next_id += 1;
 
@@ -143,7 +140,7 @@ impl WidgetStore {
             z_layer: Layer::default(),
             visible: true,
             enabled: true,
-            widget: widget.into(),
+            widget: Box::new(widget),
         };
 
         let pane_widgets = self.by_pane.entry(pane_id).or_default();
@@ -259,15 +256,30 @@ impl WidgetStore {
     }
 
     /// Returns an immutable reference to a widget.
-    pub fn get(&self, widget_id: WidgetId) -> Option<&Widget> {
+    pub fn get(&self, widget_id: WidgetId) -> Option<&dyn Widget> {
         let pane_id = self.index.get(&widget_id)?;
         let widgets = self.by_pane.get(pane_id)?;
         let entry = widgets.entries.get(&widget_id)?;
-        Some(&entry.widget)
+        Some(entry.widget.as_ref())
+    }
+
+    /// Returns an immutable reference to a widget of a specific concrete type.
+    pub fn get_as<T>(&self, widget_id: WidgetId) -> Option<&T>
+    where
+        T: Widget + 'static,
+    {
+        let pane_id = self.index.get(&widget_id)?;
+        let widgets = self.by_pane.get(pane_id)?;
+        let entry = widgets.entries.get(&widget_id)?;
+        entry.widget.as_any().downcast_ref::<T>()
     }
 
     /// Edits a widget and marks only its parent pane as needing render.
-    pub fn edit<R>(&mut self, widget_id: WidgetId, f: impl FnOnce(&mut Widget) -> R) -> Option<R> {
+    pub fn edit<R>(
+        &mut self,
+        widget_id: WidgetId,
+        f: impl FnOnce(&mut Box<dyn Widget>) -> R,
+    ) -> Option<R> {
         let pane_id = *self.index.get(&widget_id)?;
         let widgets = self.by_pane.get_mut(&pane_id)?;
         widgets.damaged_widgets.insert(widget_id);
@@ -421,14 +433,4 @@ impl WidgetStore {
             pane_widgets.full_damaged = true;
         }
     }
-
-    impl_widget_store_editors!(
-        edit_input    => Input(InputWidget),
-        edit_button   => Button(ButtonWidget),
-        edit_checkbox => Checkbox(CheckboxWidget),
-        edit_text     => Text(TextWidget),
-        edit_progress => Progress(ProgressWidget),
-        edit_slider   => Slider(SliderWidget),
-        edit_log      => Log(LogWidget),
-    );
 }

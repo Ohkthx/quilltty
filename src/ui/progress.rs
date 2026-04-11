@@ -1,23 +1,20 @@
 //! File: src/ui/progress.rs
 
 use crate::{
-    HasInteractionStyle, InteractionStyle, WidgetRender,
-    surface::{Glyph, Pane, Point, Rect, Style},
-    ui::{
-        traits::{HasWidgetState, WidgetBehavior},
-        widget::WidgetState,
-    },
+    style::{Glyph, Style},
+    surface::{Pane, Point, Rect},
+    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetState},
 };
 
 /// Shows progress in the form of a bar.
 pub struct ProgressWidget {
-    pub(crate) state: WidgetState,     // Current state.
-    pub interaction: InteractionStyle, // Style for interaction.
-    label: Option<String>,             // Text to render on the progress bar.
-    glyph: Glyph,                      // Glyph to render to show progress.
-    min: f64,                          // Minimum value.
-    max: f64,                          // Maximum value.
-    value: f64,                        // Current progress.
+    pub(crate) state: WidgetState, // Current state.
+    interaction: InteractionStyle, // Style for interaction.
+    label: Option<String>,         // Text to render on the progress bar.
+    glyph: Glyph,                  // Glyph to render to show progress.
+    min: f64,                      // Minimum value.
+    max: f64,                      // Maximum value.
+    value: f64,                    // Current progress.
 }
 
 impl ProgressWidget {
@@ -58,7 +55,15 @@ impl ProgressWidget {
     }
 }
 
-impl HasWidgetState for ProgressWidget {
+impl Widget for ProgressWidget {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn state(&self) -> &WidgetState {
         &self.state
     }
@@ -66,22 +71,15 @@ impl HasWidgetState for ProgressWidget {
     fn state_mut(&mut self) -> &mut WidgetState {
         &mut self.state
     }
-}
 
-impl HasInteractionStyle for ProgressWidget {
-    fn interaction(&self) -> &InteractionStyle {
-        &self.interaction
+    fn interaction(&self) -> Option<&InteractionStyle> {
+        Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> &mut InteractionStyle {
-        &mut self.interaction
+    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+        Some(&mut self.interaction)
     }
-}
 
-impl WidgetBehavior for ProgressWidget {}
-
-impl WidgetRender for ProgressWidget {
-    /// Renders the progress bar onto its parent `Pane`.
     fn render(&mut self, pane: &mut Pane, rect: Rect) {
         if !self.state.damaged {
             return;
@@ -148,3 +146,5 @@ impl WidgetRender for ProgressWidget {
         self.state.damaged = false;
     }
 }
+
+impl StylableWidgetExt for ProgressWidget {}

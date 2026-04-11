@@ -1,17 +1,11 @@
 //! File: src/ui/log.rs
 
 use crate::{
+    StyledLine, StyledSpan,
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::{
-        WidgetRender,
-        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
-        widget::{
-            InteractionStyle, WidgetState,
-            text::{StyledLine, StyledSpan},
-        },
-    },
+    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetState},
 };
 
 /// Renders a scroll-like log.
@@ -147,7 +141,15 @@ impl LogWidget {
     }
 }
 
-impl HasWidgetState for LogWidget {
+impl Widget for LogWidget {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn state(&self) -> &WidgetState {
         &self.state
     }
@@ -155,22 +157,15 @@ impl HasWidgetState for LogWidget {
     fn state_mut(&mut self) -> &mut WidgetState {
         &mut self.state
     }
-}
 
-impl HasInteractionStyle for LogWidget {
-    fn interaction(&self) -> &InteractionStyle {
-        &self.interaction
+    fn interaction(&self) -> Option<&InteractionStyle> {
+        Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> &mut InteractionStyle {
-        &mut self.interaction
+    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+        Some(&mut self.interaction)
     }
-}
 
-impl WidgetBehavior for LogWidget {}
-
-impl WidgetRender for LogWidget {
-    /// Draws the visible portion of the log into the widget rectangle.
     fn render(&mut self, pane: &mut Pane, rect: Rect) {
         if !self.state.damaged {
             return;
@@ -209,3 +204,5 @@ impl WidgetRender for LogWidget {
         self.state.damaged = false;
     }
 }
+
+impl StylableWidgetExt for LogWidget {}

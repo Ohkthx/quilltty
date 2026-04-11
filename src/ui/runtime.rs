@@ -1,13 +1,13 @@
 //! File: src/ui/runtime.rs
 
 use std::{
+    any::Any,
     io::{self, Write},
     time::Duration,
 };
 
 use crate::{
-    ButtonWidget, CheckboxWidget, InputWidget, LogWidget, ProgressWidget, SliderWidget, TextWidget,
-    Widget, WidgetAction, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
+    InputWidget, Widget, WidgetAction, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
     crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     surface::{
         Canvas, Compositor, Glyph, HitTarget, Pane, PaneAction, PaneBuilder, PaneElement, PaneHit,
@@ -42,7 +42,7 @@ pub enum PointerDrag {
 }
 
 /// High-level UI events emitted back to application code.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum UiEvent {
     None, // No UI action occurred.
 
@@ -110,6 +110,12 @@ pub enum UiEvent {
         widget_id: WidgetId,
         value: String,
     }, // Input widget was submitted.
+
+    // Custom widgets.
+    WidgetCustom {
+        widget_id: WidgetId,
+        payload: Box<dyn Any + Send>,
+    },
 }
 
 /// Coordinates pane rendering, widget state, and pointer-driven pane actions.
@@ -153,12 +159,10 @@ impl Ui {
     }
 
     /// Creates a widget inside the given pane.
-    pub fn add_widget(
-        &mut self,
-        pane_id: PaneId,
-        widget: impl Into<Widget>,
-        layout: WidgetLayout,
-    ) -> WidgetId {
+    pub fn add_widget<W>(&mut self, pane_id: PaneId, widget: W, layout: WidgetLayout) -> WidgetId
+    where
+        W: Widget + 'static,
+    {
         self.widgets.add_widget(pane_id, widget, layout)
     }
 }
@@ -425,7 +429,10 @@ impl Ui {
         };
 
         // Prevents accidental activation / submission for InputWidget.
-        let is_input = matches!(self.widget(widget_id), Some(Widget::Input(_)));
+        let is_input = self
+            .widget(widget_id)
+            .map(|w| w.as_any().is::<InputWidget>())
+            .unwrap_or(false);
 
         let action = self
             .widgets
@@ -614,8 +621,16 @@ impl Ui {
     // =========================================================================
 
     /// Returns an immutable reference to a widget by id.
-    pub fn widget(&self, widget_id: WidgetId) -> Option<&Widget> {
+    pub fn widget(&self, widget_id: WidgetId) -> Option<&dyn Widget> {
         self.widgets.get(widget_id)
+    }
+
+    /// Returns an immutable reference to a widget by id when it matches `T`.
+    pub fn widget_as<T>(&self, widget_id: WidgetId) -> Option<&T>
+    where
+        T: Widget + 'static,
+    {
+        self.widgets.get_as::<T>(widget_id)
     }
 
     /// Returns the current content-local rect for a widget.
@@ -628,15 +643,22 @@ impl Ui {
         self.widgets.pane_id_of(widget_id)
     }
 
-    impl_ui_widget_accessors!(
-        input,    edit_input    => Input(InputWidget),
-        button,   edit_button   => Button(ButtonWidget),
-        checkbox, edit_checkbox => Checkbox(CheckboxWidget),
-        text,     edit_text     => Text(TextWidget),
-        progress, edit_progress => Progress(ProgressWidget),
-        slider,   edit_slider   => Slider(SliderWidget),
-        log,      edit_log      => Log(LogWidget),
-    );
+    pub fn edit_widget<R>(
+        &mut self,
+        widget_id: WidgetId,
+        f: impl FnOnce(&mut dyn Widget) -> R,
+    ) -> Option<R> {
+        self.widgets.edit(widget_id, |w| f(w.as_mut()))
+    }
+
+    pub fn edit_widget_as<T: 'static, R>(
+        &mut self,
+        widget_id: WidgetId,
+        f: impl FnOnce(&mut T) -> R,
+    ) -> Option<R> {
+        self.edit_widget(widget_id, |w| w.as_any_mut().downcast_mut::<T>().map(f))
+            .flatten()
+    }
 }
 
 impl Ui {
@@ -865,6 +887,7 @@ impl Ui {
 fn map_widget_action(widget_id: WidgetId, hit: Option<WidgetHit>, action: WidgetAction) -> UiEvent {
     match action {
         WidgetAction::None => UiEvent::None,
+
         WidgetAction::Clicked => UiEvent::WidgetClicked(hit.unwrap_or(WidgetHit {
             widget_id,
             local: Point::ZERO,
@@ -873,9 +896,12 @@ fn map_widget_action(widget_id: WidgetId, hit: Option<WidgetHit>, action: Widget
             widget_id,
             local: Point::ZERO,
         })),
+
         WidgetAction::CheckboxChanged(checked) => UiEvent::CheckboxChanged { widget_id, checked },
         WidgetAction::InputChanged => UiEvent::InputChanged { widget_id },
         WidgetAction::InputSubmitted(value) => UiEvent::InputSubmitted { widget_id, value },
         WidgetAction::SliderChanged(value) => UiEvent::SliderChanged { widget_id, value },
+
+        WidgetAction::Custom(payload) => UiEvent::WidgetCustom { widget_id, payload },
     }
 }

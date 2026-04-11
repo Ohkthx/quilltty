@@ -4,20 +4,16 @@ use crate::{
     geom::{Point, Rect},
     style::Glyph,
     surface::Pane,
-    ui::{
-        InteractionStyle, WidgetAction, WidgetRender,
-        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
-        widget::WidgetState,
-    },
+    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState},
 };
 
 /// A clickable widget.
 pub struct CheckboxWidget {
-    pub(crate) state: WidgetState,     // Current state.
-    pub interaction: InteractionStyle, // Style for interaction.
-    label: Option<String>,             // Text to render next to the checkbox.
-    label_left: bool,                  // If the label is left or right of box.
-    checked: bool,                     // Marked or not.
+    pub(crate) state: WidgetState, // Current state.
+    interaction: InteractionStyle, // Style for interaction.
+    label: Option<String>,         // Text to render next to the checkbox.
+    label_left: bool,              // If the label is left or right of box.
+    checked: bool,                 // Marked or not.
 }
 
 impl CheckboxWidget {
@@ -56,7 +52,15 @@ impl CheckboxWidget {
     }
 }
 
-impl HasWidgetState for CheckboxWidget {
+impl Widget for CheckboxWidget {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn state(&self) -> &WidgetState {
         &self.state
     }
@@ -64,34 +68,15 @@ impl HasWidgetState for CheckboxWidget {
     fn state_mut(&mut self) -> &mut WidgetState {
         &mut self.state
     }
-}
 
-impl HasInteractionStyle for CheckboxWidget {
-    fn interaction(&self) -> &InteractionStyle {
-        &self.interaction
+    fn interaction(&self) -> Option<&InteractionStyle> {
+        Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> &mut InteractionStyle {
-        &mut self.interaction
-    }
-}
-
-impl WidgetBehavior for CheckboxWidget {
-    fn activate_action(&mut self) -> WidgetAction {
-        WidgetAction::CheckboxChanged(self.toggle())
+    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+        Some(&mut self.interaction)
     }
 
-    fn release_action(&mut self, focused: bool) -> WidgetAction {
-        if focused {
-            WidgetAction::CheckboxChanged(self.toggle())
-        } else {
-            WidgetAction::Released
-        }
-    }
-}
-
-impl WidgetRender for CheckboxWidget {
-    /// Renders the checkbox onto its parent `Pane`.
     fn render(&mut self, pane: &mut Pane, rect: Rect) {
         if !self.state.damaged {
             return;
@@ -128,4 +113,18 @@ impl WidgetRender for CheckboxWidget {
 
         self.state.damaged = false;
     }
+
+    fn activate_action(&mut self) -> WidgetAction {
+        WidgetAction::CheckboxChanged(self.toggle())
+    }
+
+    fn release_action(&mut self, focused: bool) -> WidgetAction {
+        if focused {
+            WidgetAction::CheckboxChanged(self.toggle())
+        } else {
+            WidgetAction::Released
+        }
+    }
 }
+
+impl StylableWidgetExt for CheckboxWidget {}

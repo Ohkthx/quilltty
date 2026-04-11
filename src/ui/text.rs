@@ -4,11 +4,7 @@ use crate::{
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::{
-        WidgetRender,
-        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior},
-        widget::{InteractionStyle, WidgetState},
-    },
+    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetState},
 };
 
 /// A styled run of text within a line.
@@ -242,7 +238,15 @@ impl TextWidget {
     }
 }
 
-impl HasWidgetState for TextWidget {
+impl Widget for TextWidget {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn state(&self) -> &WidgetState {
         &self.state
     }
@@ -250,22 +254,15 @@ impl HasWidgetState for TextWidget {
     fn state_mut(&mut self) -> &mut WidgetState {
         &mut self.state
     }
-}
 
-impl HasInteractionStyle for TextWidget {
-    fn interaction(&self) -> &InteractionStyle {
-        &self.interaction
+    fn interaction(&self) -> Option<&InteractionStyle> {
+        Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> &mut InteractionStyle {
-        &mut self.interaction
+    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+        Some(&mut self.interaction)
     }
-}
 
-impl WidgetBehavior for TextWidget {}
-
-impl WidgetRender for TextWidget {
-    /// Renders the widget into `rect` within the parent pane.
     fn render(&mut self, pane: &mut Pane, rect: Rect) {
         if !self.state.damaged {
             return;
@@ -321,3 +318,5 @@ impl WidgetRender for TextWidget {
         self.state.damaged = false;
     }
 }
+
+impl StylableWidgetExt for TextWidget {}

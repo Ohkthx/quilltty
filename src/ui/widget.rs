@@ -21,6 +21,8 @@ mod slider;
 #[path = "log.rs"]
 mod log;
 
+use std::any::Any;
+
 use crossterm::event::KeyCode;
 
 pub use button::ButtonWidget;
@@ -33,24 +35,28 @@ pub use text::{StyledLine, StyledSpan, TextWidget};
 
 use crate::{
     geom::{Point, Rect},
-    style::Style,
+    style::{Glyph, Style},
     surface::Pane,
-    ui::traits::{HasWidgetState, WidgetBehavior, WidgetRender},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum WidgetAction {
     None,
+
     Clicked,
     Released,
+
     CheckboxChanged(bool),
     InputChanged,
     InputSubmitted(String),
     SliderChanged(f64),
+
+    Custom(Box<dyn Any + Send>),
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InteractionStyle {
+    pub normal: Style,
     pub hover: Style,
     pub pressed: Style,
     pub focused: Style,
@@ -66,7 +72,7 @@ impl InteractionStyle {
         } else if state.focused {
             self.focused
         } else {
-            Style::new()
+            self.normal
         }
     }
 }
@@ -117,12 +123,135 @@ impl Default for WidgetState {
     }
 }
 
-widget_types! {
-    input    => Input(InputWidget),
-    button   => Button(ButtonWidget),
-    checkbox => Checkbox(CheckboxWidget),
-    text     => Text(TextWidget),
-    progress => Progress(ProgressWidget),
-    slider   => Slider(SliderWidget),
-    log      => Log(LogWidget),
+pub trait Widget: Any {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    fn state(&self) -> &WidgetState;
+    fn state_mut(&mut self) -> &mut WidgetState;
+
+    fn interaction(&self) -> Option<&InteractionStyle> {
+        None
+    }
+
+    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+        None
+    }
+
+    fn render(&mut self, pane: &mut Pane, rect: Rect);
+
+    fn cursor_pos(&self, _pane: &Pane, _rect: Rect) -> Option<Point> {
+        None
+    }
+
+    fn activate_action(&mut self) -> WidgetAction {
+        WidgetAction::None
+    }
+
+    fn key_action(&mut self, _key: KeyCode) -> WidgetAction {
+        WidgetAction::None
+    }
+
+    fn drag_action(&mut self, _local_x: usize, _width: usize) -> WidgetAction {
+        WidgetAction::None
+    }
+
+    fn release_action(&mut self, focused: bool) -> WidgetAction {
+        if focused {
+            WidgetAction::Clicked
+        } else {
+            WidgetAction::Released
+        }
+    }
+
+    fn set_hovered(&mut self, value: bool) {
+        self.state_mut().set_hovered(value);
+    }
+
+    fn set_pressed(&mut self, value: bool) {
+        self.state_mut().set_pressed(value);
+    }
+
+    fn set_focused(&mut self, value: bool) {
+        self.state_mut().set_focused(value);
+    }
+
+    fn set_damaged(&mut self, value: bool) {
+        self.state_mut().damaged = value;
+    }
+
+    /// Builds styled glyphs for a single row of text.
+    fn glyph_row(&self, text: &str, style: Style, width: usize) -> Vec<Glyph> {
+        text.chars()
+            .take(width)
+            .map(|ch| Glyph::from(ch).with_style(style))
+            .collect()
+    }
+
+    /// Writes one glyph row into the widget rectangle.
+    fn write_glyph_row(&self, pane: &mut Pane, rect: Rect, row: usize, glyphs: &[Glyph]) {
+        if row >= rect.height || glyphs.is_empty() {
+            return;
+        }
+
+        pane.write_glyphs(Point::new(rect.x, rect.y + row), glyphs);
+    }
+
+    fn clear_content(&self, pane: &mut Pane, rect: Rect, style: Style) {
+        if rect.width == 0 || rect.height == 0 {
+            return;
+        }
+
+        pane.fill(rect, Glyph::from(' ').with_style(style));
+    }
+}
+
+/// Fluent interaction-style builders for widgets that expose
+/// `interaction_mut() -> Some(...)`.
+pub trait StylableWidgetExt: Widget + Sized {
+    #[must_use]
+    fn with_interaction(mut self, interaction: InteractionStyle) -> Self {
+        *self
+            .interaction_mut()
+            .expect("StylableWidgetExt requires interaction_mut() to return Some(..)") =
+            interaction;
+        self.set_damaged(true);
+        self
+    }
+
+    #[must_use]
+    fn with_normal_interaction_style(mut self, style: Style) -> Self {
+        self.interaction_mut()
+            .expect("StylableWidgetExt requires interaction_mut() to return Some(..)")
+            .normal = style;
+        self.set_damaged(true);
+        self
+    }
+
+    #[must_use]
+    fn with_hover_interaction_style(mut self, style: Style) -> Self {
+        self.interaction_mut()
+            .expect("StylableWidgetExt requires interaction_mut() to return Some(..)")
+            .hover = style;
+        self.set_damaged(true);
+        self
+    }
+
+    #[must_use]
+    fn with_pressed_interaction_style(mut self, style: Style) -> Self {
+        self.interaction_mut()
+            .expect("StylableWidgetExt requires interaction_mut() to return Some(..)")
+            .pressed = style;
+        self.set_damaged(true);
+        self
+    }
+
+    #[must_use]
+    fn with_focus_interaction_style(mut self, style: Style) -> Self {
+        self.interaction_mut()
+            .expect("StylableWidgetExt requires interaction_mut() to return Some(..)")
+            .focused = style;
+        self.set_damaged(true);
+        self
+    }
 }

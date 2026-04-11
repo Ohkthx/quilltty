@@ -41,9 +41,9 @@ pub mod prelude {
     pub use crate::style::{BorderKind, Color, Glyph, Style};
     pub use crate::terminal::{Input, Terminal, TerminalOptions};
     pub use crate::ui::{
-        ButtonWidget, CheckboxWidget, HasInteractionStyle, InputWidget, LogWidget, PaneDragKind,
-        PaneId, ProgressWidget, SliderWidget, StyledLine, StyledSpan, TextWidget, Ui, UiEvent,
-        WidgetHit, WidgetId, WidgetLayout, WidgetRender,
+        ButtonWidget, CheckboxWidget, InputWidget, LogWidget, PaneDragKind, PaneId, ProgressWidget,
+        SliderWidget, StylableWidgetExt, StyledLine, StyledSpan, TextWidget, Ui, UiEvent, Widget,
+        WidgetHit, WidgetId, WidgetLayout,
     };
 }
 
@@ -52,8 +52,8 @@ pub use crate::crossterm::event::{
 };
 pub use terminal::{Input, Terminal, TerminalOptions};
 pub use ui::{
-    ButtonWidget, Canvas, CheckboxWidget, HasInteractionStyle, InputWidget, InteractionStyle,
-    LogWidget, Pane, PaneBuilder, PaneDragKind, PaneId, ProgressWidget, SliderWidget, StyledLine,
+    ButtonWidget, Canvas, CheckboxWidget, InputWidget, InteractionStyle, LogWidget, Pane,
+    PaneBuilder, PaneDragKind, PaneId, ProgressWidget, SliderWidget, StylableWidgetExt, StyledLine,
     StyledSpan, TextWidget, Ui, UiEvent, Widget, WidgetAction, WidgetHit, WidgetId, WidgetLayout,
-    WidgetRender, WidgetStore,
+    WidgetStore,
 };

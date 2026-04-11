@@ -3,18 +3,14 @@
 use crate::{
     geom::Rect,
     surface::Pane,
-    ui::{
-        InteractionStyle, WidgetAction,
-        traits::{HasInteractionStyle, HasWidgetState, WidgetBehavior, WidgetRender},
-        widget::WidgetState,
-    },
+    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState},
 };
 
 /// A clickable widget.
 pub struct ButtonWidget {
-    pub(crate) state: WidgetState,     // Current state.
-    pub interaction: InteractionStyle, // Style for interaction.
-    label: String,                     // Text to render on the button.
+    pub(crate) state: WidgetState, // Current state.
+    interaction: InteractionStyle, // Style for interaction.
+    label: String,                 // Text to render on the button.
 }
 
 impl ButtonWidget {
@@ -28,7 +24,15 @@ impl ButtonWidget {
     }
 }
 
-impl HasWidgetState for ButtonWidget {
+impl Widget for ButtonWidget {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn state(&self) -> &WidgetState {
         &self.state
     }
@@ -36,26 +40,15 @@ impl HasWidgetState for ButtonWidget {
     fn state_mut(&mut self) -> &mut WidgetState {
         &mut self.state
     }
-}
 
-impl HasInteractionStyle for ButtonWidget {
-    fn interaction(&self) -> &InteractionStyle {
-        &self.interaction
+    fn interaction(&self) -> Option<&InteractionStyle> {
+        Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> &mut InteractionStyle {
-        &mut self.interaction
+    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+        Some(&mut self.interaction)
     }
-}
 
-impl WidgetBehavior for ButtonWidget {
-    fn activate_action(&mut self) -> WidgetAction {
-        WidgetAction::Clicked
-    }
-}
-
-impl WidgetRender for ButtonWidget {
-    /// Renders the button onto its parent `Pane`.
     fn render(&mut self, pane: &mut Pane, rect: Rect) {
         if !self.state.damaged {
             return;
@@ -69,9 +62,15 @@ impl WidgetRender for ButtonWidget {
         let style = self.interaction.style(&self.state);
         self.clear_content(pane, rect, style);
 
-        let row = Self::glyph_row(&self.label, style, rect.width);
+        let row = self.glyph_row(&self.label, style, rect.width);
         self.write_glyph_row(pane, rect, 0, &row);
 
         self.state.damaged = false;
     }
+
+    fn activate_action(&mut self) -> WidgetAction {
+        WidgetAction::Clicked
+    }
 }
+
+impl StylableWidgetExt for ButtonWidget {}
