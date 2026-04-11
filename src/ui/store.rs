@@ -8,6 +8,7 @@ use crate::{
         Canvas, Layer, Pane, PaneId, Point, Rect,
         indexed_vec::{IndexedVec, Keyed},
     },
+    ui::widget_render,
 };
 
 /// Unique identifier for a `Widget`.
@@ -167,7 +168,8 @@ impl WidgetStore {
             .any(|pane| pane.full_damaged || !pane.damaged_widgets.is_empty())
     }
 
-    /// Renders one widget entry using the cached pane content rect.
+    /// Renders one widget entry using the cached pane content rect and returns the
+    /// focused widget cursor position when this entry owns it.
     fn render_entry(
         entry: &mut WidgetEntry,
         pane: &mut Pane,
@@ -175,9 +177,9 @@ impl WidgetStore {
         pane_is_focused: bool,
         focused_widget: Option<WidgetId>,
         force_damage: bool,
-    ) {
+    ) -> Option<Point> {
         if !entry.visible || !entry.enabled {
-            return;
+            return None;
         }
 
         let rect = entry.layout.as_local(&content_rect);
@@ -186,11 +188,13 @@ impl WidgetStore {
             entry.widget.set_damaged(true); // Forced redraw for full pane damage.
         }
 
-        entry.widget.render(pane, rect);
+        widget_render(entry.widget.as_mut(), pane, rect);
 
         if pane_is_focused && focused_widget == Some(entry.id) {
-            entry.widget.cursor_pos(pane, rect);
+            return entry.widget.cursor_pos(pane, rect);
         }
+
+        None
     }
 
     /// Renders only dirty widgets unless the pane needs a full layout pass.
@@ -209,6 +213,7 @@ impl WidgetStore {
             let pane_is_focused = canvas.focused() == Some(pane_id);
             let full_damaged = widgets.full_damaged;
             let damaged_widgets = std::mem::take(&mut widgets.damaged_widgets);
+            let mut focused_cursor = None;
 
             if let Some(pane) = canvas.pane_mut(pane_id) {
                 // Preserve stable widget z-order during partial redraws by walking
@@ -218,15 +223,23 @@ impl WidgetStore {
                         continue;
                     }
 
-                    Self::render_entry(
+                    if let Some(cursor) = Self::render_entry(
                         entry,
                         pane,
                         content_rect,
                         pane_is_focused,
                         focused_widget,
                         full_damaged,
-                    );
+                    ) {
+                        focused_cursor = Some(cursor);
+                    }
                 }
+            }
+
+            if pane_is_focused {
+                // Keep the canvas cursor synced to the focused widget. This also
+                // clears stale cursors when the focused widget does not expose one.
+                canvas.set_cursor(focused_cursor);
             }
 
             widgets.full_damaged = false;
@@ -274,17 +287,18 @@ impl WidgetStore {
         entry.widget.as_any().downcast_ref::<T>()
     }
 
-    /// Edits a widget and marks only its parent pane as needing render.
+    /// Edits a widget and marks both the store entry and widget state as needing redraw.
     pub fn edit<R>(
         &mut self,
         widget_id: WidgetId,
-        f: impl FnOnce(&mut Box<dyn Widget>) -> R,
+        f: impl FnOnce(&mut dyn Widget) -> R,
     ) -> Option<R> {
         let pane_id = *self.index.get(&widget_id)?;
         let widgets = self.by_pane.get_mut(&pane_id)?;
         widgets.damaged_widgets.insert(widget_id);
         let entry = widgets.entries.get_mut(&widget_id)?;
-        Some(f(&mut entry.widget))
+        entry.widget.set_damaged(true);
+        Some(f(entry.widget.as_mut()))
     }
 
     /// Hit-tests widgets using one cached pane content rect.
@@ -386,6 +400,20 @@ impl WidgetStore {
     /// Returns the currently pressed widget, if any.
     pub fn pressed(&self) -> Option<WidgetId> {
         self.pressed
+    }
+
+    /// Clears the currently pressed widget even when release happens outside pane content.
+    pub fn clear_pressed(&mut self) -> bool {
+        let Some(pressed) = self.pressed.take() else {
+            return false;
+        };
+
+        let _ = self.edit(pressed, |w| {
+            w.set_pressed(false);
+            w.set_hovered(false);
+        });
+
+        true
     }
 
     /// Resolves one widget rect using one cached pane content rect.

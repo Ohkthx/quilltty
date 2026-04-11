@@ -4,6 +4,8 @@ mod runtime;
 mod store;
 pub mod widget;
 
+pub(crate) use widget::widget_render;
+
 pub use crate::surface::{Canvas, HitTarget, Pane, PaneBuilder, PaneElement, PaneHit, PaneId};
 
 pub use runtime::{PaneDragKind, PointerDrag, Ui, UiEvent};

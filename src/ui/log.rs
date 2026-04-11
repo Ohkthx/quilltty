@@ -58,7 +58,7 @@ impl LogWidget {
             self.lines.drain(0..overflow);
         }
 
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
     }
 
     /// Appends a pre-styled line to the log.
@@ -70,7 +70,7 @@ impl LogWidget {
             self.lines.drain(0..overflow);
         }
 
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
     }
 
     /// Replaces all current log contents with a new line set.
@@ -79,13 +79,13 @@ impl LogWidget {
         I: IntoIterator<Item = StyledLine>,
     {
         self.lines = lines.into_iter().collect();
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
     }
 
     /// Removes every stored line from the log.
     pub fn clear(&mut self) {
         self.lines.clear();
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
     }
 
     /// Returns all stored logical lines.
@@ -166,20 +166,9 @@ impl Widget for LogWidget {
         Some(&mut self.interaction)
     }
 
-    fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        let interaction_style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, interaction_style);
-
-        let rows = self.layout_rows(rect.width, interaction_style);
+    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
+        let style = self.interaction.style(&self.state);
+        let rows = self.layout_rows(rect.width, style);
 
         let visible_len = rows.len().min(rect.height);
         let start = if self.ascending {
@@ -200,8 +189,6 @@ impl Widget for LogWidget {
                 pane.write_glyphs(Point::new(rect.x, y), row);
             }
         }
-
-        self.state.damaged = false;
     }
 }
 

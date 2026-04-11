@@ -44,7 +44,7 @@ impl InputWidget {
     #[must_use]
     pub fn with_label_style(mut self, style: Style) -> Self {
         self.label_style = style;
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
         self
     }
 
@@ -52,7 +52,7 @@ impl InputWidget {
     #[must_use]
     pub fn with_style(mut self, style: Style) -> Self {
         self.style = style;
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
         self
     }
 
@@ -65,7 +65,7 @@ impl InputWidget {
     pub fn insert_char(&mut self, ch: char) {
         self.buffer.insert(self.cursor, ch);
         self.cursor += ch.len_utf8();
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
     }
 
     /// Removes a character from the text buffer.
@@ -82,7 +82,7 @@ impl InputWidget {
 
         self.buffer.drain(prev..self.cursor);
         self.cursor = prev;
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
     }
 
     /// Moves the cursor left by one character.
@@ -97,7 +97,7 @@ impl InputWidget {
             .map(|(i, _)| i)
             .unwrap_or(0);
 
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
     }
 
     /// Moves the cursor right by one character.
@@ -113,13 +113,13 @@ impl InputWidget {
             .unwrap_or(self.buffer.len());
 
         self.cursor = next;
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
     }
 
     /// Extracts the current input and clears the buffer.
     pub fn submit(&mut self) -> String {
         self.cursor = 0;
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
         std::mem::take(&mut self.buffer)
     }
 
@@ -269,26 +269,12 @@ impl Widget for InputWidget {
         Some(&mut self.interaction)
     }
 
-    fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        let Rect { width, height, .. } = rect;
-        if width == 0 || height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        self.clear_content(pane, rect, self.style);
-
-        if height > 1 {
+    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
+        if rect.height > 1 {
             self.render_multiline(pane, rect);
         } else {
             self.render_single_line(pane, rect);
         }
-
-        self.state.damaged = false;
     }
 
     fn cursor_pos(&self, pane: &Pane, rect: Rect) -> Option<Point> {

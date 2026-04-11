@@ -40,14 +40,14 @@ impl CheckboxWidget {
     pub fn set_checked(&mut self, value: bool) {
         if self.checked != value {
             self.checked = value;
-            self.state.damaged = true;
+            self.state_mut().set_damaged(true);
         }
     }
 
     /// Toggles the status of the checkbox.
     pub fn toggle(&mut self) -> bool {
         self.checked = !self.checked;
-        self.state.damaged = true;
+        self.state_mut().set_damaged(true);
         self.checked
     }
 }
@@ -77,19 +77,7 @@ impl Widget for CheckboxWidget {
         Some(&mut self.interaction)
     }
 
-    fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        let style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, style);
-
+    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
         let checked = if self.checked { "x" } else { " " };
         let label = if let Some(label) = self.label.as_deref() {
             if self.label_left {
@@ -101,6 +89,7 @@ impl Widget for CheckboxWidget {
             format!("[{checked}]")
         };
 
+        let style = self.interaction.style(self.state());
         let row: Vec<Glyph> = label
             .chars()
             .take(rect.width)
@@ -110,8 +99,6 @@ impl Widget for CheckboxWidget {
         if !row.is_empty() {
             pane.write_glyphs(Point::new(rect.x, rect.y), &row);
         }
-
-        self.state.damaged = false;
     }
 
     fn activate_action(&mut self) -> WidgetAction {

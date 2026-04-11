@@ -50,7 +50,7 @@ impl ProgressWidget {
         let next = value.clamp(self.min, self.max);
         if self.value != next {
             self.value = next;
-            self.state.damaged = true;
+            self.state_mut().set_damaged(true);
         }
     }
 }
@@ -80,18 +80,8 @@ impl Widget for ProgressWidget {
         Some(&mut self.interaction)
     }
 
-    fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
+    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
         let style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, style);
 
         let label = self.label.as_deref().unwrap_or("");
         let label_len = label.chars().count().min(rect.width);
@@ -142,8 +132,6 @@ impl Widget for ProgressWidget {
         if !row.is_empty() {
             pane.write_glyphs(Point::new(rect.x, rect.y), &row);
         }
-
-        self.state.damaged = false;
     }
 }
 

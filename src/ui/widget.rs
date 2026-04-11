@@ -64,6 +64,7 @@ pub struct InteractionStyle {
 
 impl InteractionStyle {
     /// Obtains the style for the state provided, otherwise default style provided.
+    #[inline]
     pub fn style(&self, state: &WidgetState) -> Style {
         if state.pressed {
             self.pressed
@@ -80,35 +81,70 @@ impl InteractionStyle {
 /// Current state for a `Widget`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WidgetState {
-    pub(crate) hovered: bool, // Hover marker.
-    pub(crate) focused: bool, // Focus marker.
-    pub(crate) pressed: bool, // Pressed marker.
-    pub(crate) damaged: bool, // Damaged marker.
+    hovered: bool, // Hover marker.
+    focused: bool, // Focus marker.
+    pressed: bool, // Pressed marker.
+    damaged: bool, // Damaged marker.
 }
 
 impl WidgetState {
     /// Sets the widget's hovered state.
+    #[inline]
     pub fn set_hovered(&mut self, value: bool) {
         if self.hovered != value {
             self.hovered = value;
-            self.damaged = true;
+            self.set_damaged(true);
         }
     }
 
     /// Sets the widget's pressed state.
+    #[inline]
     pub fn set_pressed(&mut self, value: bool) {
         if self.pressed != value {
             self.pressed = value;
-            self.damaged = true;
+            self.set_damaged(true);
         }
     }
 
     /// Sets the widget's focused state.
+    #[inline]
     pub fn set_focused(&mut self, value: bool) {
         if self.focused != value {
             self.focused = value;
-            self.damaged = true;
+            self.set_damaged(true);
         }
+    }
+
+    /// Sets the widget's damaged state.
+    #[inline]
+    pub fn set_damaged(&mut self, value: bool) {
+        if self.damaged != value {
+            self.damaged = value;
+        }
+    }
+
+    /// Gets the hovered state for the widget.
+    #[inline]
+    pub fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    /// Gets the pressed state for the widget.
+    #[inline]
+    pub fn is_pressed(&self) -> bool {
+        self.pressed
+    }
+
+    /// Gets the focused state for the widget.
+    #[inline]
+    pub fn is_focused(&self) -> bool {
+        self.focused
+    }
+
+    /// Gets the damaged state for the widget.
+    #[inline]
+    fn is_damaged(&self) -> bool {
+        self.damaged
     }
 }
 
@@ -130,32 +166,43 @@ pub trait Widget: Any {
     fn state(&self) -> &WidgetState;
     fn state_mut(&mut self) -> &mut WidgetState;
 
+    #[inline]
     fn interaction(&self) -> Option<&InteractionStyle> {
         None
     }
 
+    #[inline]
     fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
         None
     }
 
-    fn render(&mut self, pane: &mut Pane, rect: Rect);
+    // Rendering
 
+    fn draw(&mut self, pane: &mut Pane, rect: Rect);
+
+    #[inline]
     fn cursor_pos(&self, _pane: &Pane, _rect: Rect) -> Option<Point> {
         None
     }
 
+    // Actions
+
+    #[inline]
     fn activate_action(&mut self) -> WidgetAction {
         WidgetAction::None
     }
 
+    #[inline]
     fn key_action(&mut self, _key: KeyCode) -> WidgetAction {
         WidgetAction::None
     }
 
+    #[inline]
     fn drag_action(&mut self, _local_x: usize, _width: usize) -> WidgetAction {
         WidgetAction::None
     }
 
+    #[inline]
     fn release_action(&mut self, focused: bool) -> WidgetAction {
         if focused {
             WidgetAction::Clicked
@@ -164,21 +211,44 @@ pub trait Widget: Any {
         }
     }
 
+    // Status
+
+    #[inline]
     fn set_hovered(&mut self, value: bool) {
         self.state_mut().set_hovered(value);
     }
 
+    #[inline]
     fn set_pressed(&mut self, value: bool) {
         self.state_mut().set_pressed(value);
     }
 
+    #[inline]
     fn set_focused(&mut self, value: bool) {
         self.state_mut().set_focused(value);
     }
 
+    #[inline]
     fn set_damaged(&mut self, value: bool) {
-        self.state_mut().damaged = value;
+        self.state_mut().set_damaged(value);
     }
+
+    #[inline]
+    fn is_hovered(&self) -> bool {
+        self.state().is_hovered()
+    }
+
+    #[inline]
+    fn is_pressed(&self) -> bool {
+        self.state().is_pressed()
+    }
+
+    #[inline]
+    fn is_focused(&self) -> bool {
+        self.state().is_focused()
+    }
+
+    // Helpers
 
     /// Builds styled glyphs for a single row of text.
     fn glyph_row(&self, text: &str, style: Style, width: usize) -> Vec<Glyph> {
@@ -197,6 +267,19 @@ pub trait Widget: Any {
         pane.write_glyphs(Point::new(rect.x, rect.y + row), glyphs);
     }
 
+    #[inline]
+    fn clear_before_draw(&self) -> bool {
+        true
+    }
+
+    #[inline]
+    fn clear_style(&self) -> Style {
+        self.interaction()
+            .map(|i| i.style(self.state()))
+            .unwrap_or_default()
+    }
+
+    #[inline]
     fn clear_content(&self, pane: &mut Pane, rect: Rect, style: Style) {
         if rect.width == 0 || rect.height == 0 {
             return;
@@ -254,4 +337,22 @@ pub trait StylableWidgetExt: Widget + Sized {
         self.set_damaged(true);
         self
     }
+}
+
+pub(crate) fn widget_render(widget: &mut dyn Widget, pane: &mut Pane, rect: Rect) {
+    if !widget.state().is_damaged() {
+        return;
+    }
+
+    if rect.width == 0 || rect.height == 0 {
+        widget.set_damaged(false);
+        return;
+    }
+
+    if widget.clear_before_draw() {
+        widget.clear_content(pane, rect, widget.clear_style());
+    }
+
+    widget.draw(pane, rect);
+    widget.set_damaged(false);
 }

@@ -181,13 +181,13 @@ impl TextWidget {
     pub fn push(&mut self, text: impl Into<String>) {
         self.lines
             .push(StyledLine::with_spans([StyledSpan::new(text)]));
-        self.state.damaged = true
+        self.state_mut().set_damaged(true);
     }
 
     /// Appends a styled line to the widget.
     pub fn push_line(&mut self, line: StyledLine) {
         self.lines.push(line);
-        self.state.damaged = true
+        self.state_mut().set_damaged(true);
     }
 
     /// Replaces the widget contents with the provided lines.
@@ -196,13 +196,13 @@ impl TextWidget {
         I: IntoIterator<Item = StyledLine>,
     {
         self.lines = lines.into_iter().collect();
-        self.state.damaged = true
+        self.state_mut().set_damaged(true);
     }
 
     /// Removes all lines from the widget.
     pub fn clear(&mut self) {
         self.lines.clear();
-        self.state.damaged = true
+        self.state_mut().set_damaged(true);
     }
 
     /// Returns the widget's styled lines.
@@ -263,18 +263,8 @@ impl Widget for TextWidget {
         Some(&mut self.interaction)
     }
 
-    fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        let interaction_style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, interaction_style);
+    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
+        let style = self.interaction.style(&self.state);
 
         let mut out_y = 0;
         let mut row = Vec::with_capacity(rect.width);
@@ -283,7 +273,7 @@ impl Widget for TextWidget {
             row.clear();
 
             for span in line.spans() {
-                let span_style = self.resolved_span_style(interaction_style, span.style);
+                let span_style = self.resolved_span_style(style, span.style);
 
                 for ch in span.text.chars() {
                     if row.len() >= rect.width {
@@ -314,8 +304,6 @@ impl Widget for TextWidget {
                 break;
             }
         }
-
-        self.state.damaged = false;
     }
 }
 

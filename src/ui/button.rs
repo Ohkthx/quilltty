@@ -49,23 +49,10 @@ impl Widget for ButtonWidget {
         Some(&mut self.interaction)
     }
 
-    fn render(&mut self, pane: &mut Pane, rect: Rect) {
-        if !self.state.damaged {
-            return;
-        }
-
-        if rect.width == 0 || rect.height == 0 {
-            self.state.damaged = false;
-            return;
-        }
-
-        let style = self.interaction.style(&self.state);
-        self.clear_content(pane, rect, style);
-
+    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
+        let style = self.interaction.style(self.state());
         let row = self.glyph_row(&self.label, style, rect.width);
         self.write_glyph_row(pane, rect, 0, &row);
-
-        self.state.damaged = false;
     }
 
     fn activate_action(&mut self) -> WidgetAction {

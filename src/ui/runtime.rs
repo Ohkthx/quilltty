@@ -415,6 +415,7 @@ impl Ui {
         }
 
         let Some(widget_hit) = self.mouse_up_widget_hit(pos) else {
+            let _ = self.widgets.clear_pressed();
             self.widgets.clear_hover();
             return UiEvent::None;
         };
@@ -648,7 +649,7 @@ impl Ui {
         widget_id: WidgetId,
         f: impl FnOnce(&mut dyn Widget) -> R,
     ) -> Option<R> {
-        self.widgets.edit(widget_id, |w| f(w.as_mut()))
+        self.widgets.edit(widget_id, f)
     }
 
     pub fn edit_widget_as<T: 'static, R>(
