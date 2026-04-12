@@ -1,10 +1,7 @@
-//! File: src/ui/button.rs
+//! File: src/ui/widget/button.rs
 
-use crate::{
-    geom::Rect,
-    surface::Pane,
-    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState},
-};
+use super::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState};
+use crate::{geom::Rect, surface::Pane};
 
 /// A clickable widget.
 pub struct ButtonWidget {

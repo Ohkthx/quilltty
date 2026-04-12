@@ -1,12 +1,12 @@
-//! File: src/ui/input.rs
+//! File: src/ui/widget/input.rs
 
 use crossterm::event::KeyCode;
 
+use super::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState, merge_style};
 use crate::{
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState},
 };
 
 /// A widget that allows text entry.
@@ -223,11 +223,7 @@ impl InputWidget {
         width: usize,
     ) -> usize {
         let base_style = if label { self.label_style } else { self.style };
-        let style = if base_style != Style::default() {
-            base_style
-        } else {
-            self.interaction.style(&self.state)
-        };
+        let style = merge_style(base_style, self.interaction.style(&self.state));
 
         let glyphs: Vec<Glyph> = text
             .chars()

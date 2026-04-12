@@ -43,7 +43,7 @@ pub mod prelude {
     pub use crate::ui::{
         ButtonWidget, CheckboxWidget, InputWidget, LogWidget, PaneDragKind, PaneId, ProgressWidget,
         SliderWidget, StylableWidgetExt, StyledLine, StyledSpan, TextWidget, Ui, UiEvent, Widget,
-        WidgetHit, WidgetId, WidgetLayout,
+        WidgetBuilder, WidgetHit, WidgetId, WidgetLayout,
     };
 }
 
@@ -54,6 +54,6 @@ pub use terminal::{Input, Terminal, TerminalOptions};
 pub use ui::{
     ButtonWidget, Canvas, CheckboxWidget, InputWidget, InteractionStyle, LogWidget, Pane,
     PaneBuilder, PaneDragKind, PaneId, ProgressWidget, SliderWidget, StylableWidgetExt, StyledLine,
-    StyledSpan, TextWidget, Ui, UiEvent, Widget, WidgetAction, WidgetHit, WidgetId, WidgetLayout,
-    WidgetStore,
+    StyledSpan, TextWidget, Ui, UiEvent, Widget, WidgetAction, WidgetBuilder, WidgetHit, WidgetId,
+    WidgetLayout, WidgetStore,
 };

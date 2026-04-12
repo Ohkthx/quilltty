@@ -7,12 +7,17 @@ use std::{
 };
 
 use crate::{
-    InputWidget, Widget, WidgetAction, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
     crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
+    render::Layer,
     surface::{
         Canvas, Compositor, Glyph, HitTarget, Pane, PaneAction, PaneBuilder, PaneElement, PaneHit,
         PaneId, Point, Rect, Renderer, Size,
     },
+};
+
+use super::widget::{
+    InputWidget, Widget, WidgetAction, WidgetBuilder, WidgetHit, WidgetId, WidgetLayout,
+    WidgetStore,
 };
 
 /// Describes the kind of pane drag currently in progress.
@@ -154,7 +159,7 @@ impl Ui {
     }
 
     /// Returns a builder for creating a new pane on the canvas.
-    pub fn add_pane(&mut self) -> PaneBuilder<'_> {
+    pub fn create_pane(&mut self) -> PaneBuilder<'_> {
         self.canvas.create_pane()
     }
 
@@ -168,22 +173,29 @@ impl Ui {
         self.canvas.remove_pane(pane_id)
     }
 
-    /// Creates a widget inside the given pane.
-    pub fn add_widget<W>(&mut self, pane_id: PaneId, widget: W, layout: WidgetLayout) -> WidgetId
+    /// Returns a builder for creating a new widget inside the given pane.
+    pub fn create_widget<W>(&mut self, pane_id: PaneId, widget: W) -> WidgetBuilder<'_, W>
     where
         W: Widget + 'static,
     {
-        self.widgets.add_widget(pane_id, widget, layout)
+        self.widgets.create_widget(pane_id, widget)
     }
 
     /// Removes a widget from the UI at runtime.
     pub fn remove_widget(&mut self, widget_id: WidgetId) -> bool {
         let pane_id = self.widgets.pane_id_of(widget_id);
+        let rect = self.widgets.widget_rect(&self.canvas, widget_id);
         let was_focused = self.widgets.focused() == Some(widget_id);
 
         let removed = self.widgets.remove_widget(widget_id);
         if !removed {
             return false;
+        }
+
+        if let (Some(pane_id), Some(rect)) = (pane_id, rect)
+            && let Some(pane) = self.canvas.pane_mut(pane_id)
+        {
+            pane.fill(rect, Glyph::from(' '));
         }
 
         if was_focused && self.canvas.focused() == pane_id {

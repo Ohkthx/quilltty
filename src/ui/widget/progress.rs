@@ -1,25 +1,24 @@
-//! File: src/ui/slider.rs
+//! File: src/ui/widget/progress.rs
 
+use super::{InteractionStyle, StylableWidgetExt, Widget, WidgetState};
 use crate::{
-    geom::Rect,
     style::{Glyph, Style},
-    surface::Pane,
-    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState},
+    surface::{Pane, Point, Rect},
 };
 
-/// Shows slider in the form of a bar.
-pub struct SliderWidget {
+/// Shows progress in the form of a bar.
+pub struct ProgressWidget {
     pub(crate) state: WidgetState, // Current state.
     interaction: InteractionStyle, // Style for interaction.
-    label: Option<String>,         // Text to render on the slider.
-    glyph: Glyph,                  // Glyph to render to show slider.
+    label: Option<String>,         // Text to render on the progress bar.
+    glyph: Glyph,                  // Glyph to render to show progress.
     min: f64,                      // Minimum value.
     max: f64,                      // Maximum value.
-    value: f64,                    // Current slider.
+    value: f64,                    // Current progress.
 }
 
-impl SliderWidget {
-    /// Creates a new `SliderWidget`.
+impl ProgressWidget {
+    /// Creates a new `ProgressWidget`.
     pub fn new<L>(label: Option<L>, min: f64, max: f64, value: f64) -> Self
     where
         L: Into<String>,
@@ -35,18 +34,18 @@ impl SliderWidget {
         }
     }
 
-    /// Sets the Glyph that should be rendered as slider.
+    /// Sets the Glyph that should be rendered as progress.
     pub fn with_glyph(mut self, glyph: Glyph) -> Self {
         self.glyph = glyph;
         self
     }
 
-    /// Obtains the current value of the slider.
+    /// Obtains the current value of the progress.
     pub fn value(&self) -> f64 {
         self.value.clamp(self.min, self.max)
     }
 
-    /// Sets the slider to the specified amount.
+    /// Sets the progress to the specified amount.
     pub fn set(&mut self, value: f64) {
         let next = value.clamp(self.min, self.max);
         if self.value != next {
@@ -54,40 +53,9 @@ impl SliderWidget {
             self.state_mut().set_damaged(true);
         }
     }
-
-    /// Updates the slider using a widget-local x position.
-    /// Returns `Some(new_value)` only when the slider changes.
-    pub fn set_from_local_x(&mut self, local_x: usize, total_width: usize) -> Option<f64> {
-        let label_len = self
-            .label
-            .as_deref()
-            .unwrap_or("")
-            .chars()
-            .count()
-            .min(total_width);
-        let frame_len = 2;
-        let bar_len = total_width.saturating_sub(label_len + frame_len);
-
-        // No usable track.
-        if bar_len <= 1 {
-            return None;
-        }
-
-        // Track begins immediately after the opening '['.
-        let bar_start = label_len + 1;
-        let slot = local_x.saturating_sub(bar_start).min(bar_len - 1);
-        let ratio = slot as f64 / (bar_len - 1) as f64;
-        let next = self.min + (self.max - self.min) * ratio;
-
-        let old = self.value();
-        self.set(next);
-        let new = self.value();
-
-        (new != old).then_some(new)
-    }
 }
 
-impl Widget for SliderWidget {
+impl Widget for ProgressWidget {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -117,6 +85,7 @@ impl Widget for SliderWidget {
 
         let label = self.label.as_deref().unwrap_or("");
         let label_len = label.chars().count().min(rect.width);
+
         let frame_len = 2;
         let bar_len = rect.width.saturating_sub(label_len + frame_len);
 
@@ -127,12 +96,7 @@ impl Widget for SliderWidget {
             ((self.value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
         };
 
-        let position = if bar_len == 0 {
-            0
-        } else {
-            (ratio * (bar_len.saturating_sub(1)) as f64).round() as usize
-        }
-        .min(bar_len.saturating_sub(1));
+        let filled = (ratio * bar_len as f64).round() as usize;
 
         let mut row = Vec::with_capacity(rect.width);
 
@@ -152,10 +116,10 @@ impl Widget for SliderWidget {
                 break;
             }
 
-            let glyph = if bar_x == position {
+            let glyph = if bar_x < filled {
                 self.glyph
             } else {
-                Glyph::from('-').with_style(style)
+                Glyph::from(' ').with_style(style)
             };
 
             row.push(glyph);
@@ -165,18 +129,10 @@ impl Widget for SliderWidget {
             row.push(Glyph::from(']').with_style(style));
         }
 
-        self.write_glyph_row(pane, rect, 0, &row);
-    }
-
-    fn drag_action(&mut self, local_x: usize, width: usize) -> WidgetAction {
-        self.set_from_local_x(local_x, width)
-            .map(WidgetAction::SliderChanged)
-            .unwrap_or(WidgetAction::None)
-    }
-
-    fn release_action(&mut self, _focused: bool) -> WidgetAction {
-        WidgetAction::Released
+        if !row.is_empty() {
+            pane.write_glyphs(Point::new(rect.x, rect.y), &row);
+        }
     }
 }
 
-impl StylableWidgetExt for SliderWidget {}
+impl StylableWidgetExt for ProgressWidget {}

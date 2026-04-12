@@ -1,10 +1,10 @@
-//! File: src/ui/text.rs
+//! File: src/ui/widget/text.rs
 
+use super::{InteractionStyle, StylableWidgetExt, Widget, WidgetState, merge_style};
 use crate::{
     geom::{Point, Rect},
     style::{Glyph, Style},
     surface::Pane,
-    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetState},
 };
 
 /// A styled run of text within a line.
@@ -221,12 +221,9 @@ impl TextWidget {
     }
 
     /// Resolves the effective style for a span.
+    #[inline]
     fn resolved_span_style(&self, interaction_style: Style, span_style: Style) -> Style {
-        if interaction_style == Style::default() {
-            span_style
-        } else {
-            interaction_style
-        }
+        merge_style(span_style, interaction_style)
     }
 
     /// Flushes one prepared row into the pane.

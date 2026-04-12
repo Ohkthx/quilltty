@@ -134,8 +134,8 @@ impl BorderKind {
                 BoxDraw::RoundedBottomRight,
             ),
             BorderKind::Double => (
-                BoxDraw::Horizontal,
-                BoxDraw::Vertical,
+                BoxDraw::DoubleHorizontal,
+                BoxDraw::DoubleVertical,
                 BoxDraw::DoubleTopLeft,
                 BoxDraw::DoubleTopRight,
                 BoxDraw::DoubleBottomLeft,

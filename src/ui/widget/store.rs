@@ -1,14 +1,11 @@
-//! File: src/ui/store.rs
+//! File: src/ui/widget/store.rs
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{
-    Widget,
-    surface::{
-        Canvas, Layer, Pane, PaneId, Point, Rect,
-        indexed_vec::{IndexedVec, Keyed},
-    },
-    ui::widget_render,
+use super::{Widget, WidgetBuilder, widget_render};
+use crate::surface::{
+    Canvas, Layer, Pane, PaneId, Point, Rect,
+    indexed_vec::{IndexedVec, Keyed},
 };
 
 /// Unique identifier for a `Widget`.
@@ -128,8 +125,16 @@ impl WidgetStore {
         Self::default()
     }
 
-    /// Inserts a widget directly without routing through an internal builder.
-    pub fn add_widget<W>(&mut self, pane_id: PaneId, widget: W, layout: WidgetLayout) -> WidgetId
+    /// Inserts a widget directly into the store using the provided entry metadata.
+    pub(crate) fn insert_widget<W>(
+        &mut self,
+        pane_id: PaneId,
+        layer: impl Into<Layer>,
+        visible: bool,
+        enabled: bool,
+        widget: W,
+        layout: WidgetLayout,
+    ) -> WidgetId
     where
         W: Widget + 'static,
     {
@@ -139,9 +144,9 @@ impl WidgetStore {
         let widget_entry = WidgetEntry {
             id: widget_id,
             layout,
-            z_layer: Layer::default(),
-            visible: true,
-            enabled: true,
+            z_layer: layer.into(),
+            visible,
+            enabled,
             widget: Box::new(widget),
         };
 
@@ -149,7 +154,6 @@ impl WidgetStore {
         pane_widgets.full_damaged = true;
         pane_widgets.damaged_widgets.insert(widget_id);
 
-        // Keeps entries ordered so hit-testing and rendering stay consistent.
         let idx = pane_widgets
             .entries
             .as_slice()
@@ -159,6 +163,22 @@ impl WidgetStore {
         self.index.insert(widget_id, pane_id);
 
         widget_id
+    }
+
+    /// Returns a builder for creating a new widget inside the given pane.
+    pub fn create_widget<W>(&mut self, pane_id: PaneId, widget: W) -> WidgetBuilder<'_, W>
+    where
+        W: Widget + 'static,
+    {
+        WidgetBuilder {
+            store: self,
+            pane_id,
+            widget,
+            layout: None,
+            z_layer: Layer::default(),
+            visible: true,
+            enabled: true,
+        }
     }
 
     /// Removes a widget from the store and invalidates its parent pane.
@@ -280,13 +300,26 @@ impl WidgetStore {
             let pane_is_focused = canvas.focused() == Some(pane_id);
             let full_damaged = widgets.full_damaged;
             let damaged_widgets = std::mem::take(&mut widgets.damaged_widgets);
+
+            let redraw_from = if full_damaged {
+                0
+            } else {
+                widgets
+                    .entries
+                    .as_slice()
+                    .iter()
+                    .position(|entry| damaged_widgets.contains(&entry.id))
+                    .unwrap_or(widgets.entries.len())
+            };
+
             let mut focused_cursor = None;
 
             if let Some(pane) = canvas.pane_mut(pane_id) {
-                // Preserve stable widget z-order during partial redraws by walking
-                // the ordered entries and filtering by the dirty set.
-                for entry in widgets.entries.iter_mut() {
-                    if !full_damaged && !damaged_widgets.contains(&entry.id) {
+                // Redraw from the earliest dirty widget upward so higher-z widgets
+                // are re-applied when overlapping widgets share space.
+                for (idx, entry) in widgets.entries.iter_mut().enumerate() {
+                    let redraw = full_damaged || idx >= redraw_from;
+                    if !redraw {
                         continue;
                     }
 
@@ -296,16 +329,24 @@ impl WidgetStore {
                         content_rect,
                         pane_is_focused,
                         focused_widget,
-                        full_damaged,
+                        redraw,
                     ) {
                         focused_cursor = Some(cursor);
                     }
                 }
+
+                if pane_is_focused
+                    && let Some(widget_id) = focused_widget
+                    && let Some(entry) = widgets.entries.get(&widget_id)
+                    && entry.visible
+                    && entry.enabled
+                {
+                    let rect = entry.layout.as_local(&content_rect);
+                    focused_cursor = entry.widget.cursor_pos(pane, rect);
+                }
             }
 
             if pane_is_focused {
-                // Keep the canvas cursor synced to the focused widget. This also
-                // clears stale cursors when the focused widget does not expose one.
                 canvas.set_cursor(focused_cursor);
             }
 

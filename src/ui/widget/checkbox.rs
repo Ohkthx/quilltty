@@ -1,10 +1,10 @@
-//! File: src/ui/checkbox.rs
+//! File: src/ui/widget/checkbox.rs
 
+use super::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState};
 use crate::{
     geom::{Point, Rect},
     style::Glyph,
     surface::Pane,
-    ui::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState},
 };
 
 /// A clickable widget.

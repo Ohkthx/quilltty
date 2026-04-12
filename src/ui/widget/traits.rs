@@ -1,41 +1,12 @@
-//! File: src/ui/widget.rs
-
-#[path = "button.rs"]
-mod button;
-
-#[path = "input.rs"]
-mod input;
-
-#[path = "checkbox.rs"]
-mod checkbox;
-
-#[path = "text.rs"]
-mod text;
-
-#[path = "progress.rs"]
-mod progress;
-
-#[path = "slider.rs"]
-mod slider;
-
-#[path = "log.rs"]
-mod log;
+//! File: src/ui/widget/widget.rs
 
 use std::any::Any;
 
 use crossterm::event::KeyCode;
 
-pub use button::ButtonWidget;
-pub use checkbox::CheckboxWidget;
-pub use input::InputWidget;
-pub use log::LogWidget;
-pub use progress::ProgressWidget;
-pub use slider::SliderWidget;
-pub use text::{StyledLine, StyledSpan, TextWidget};
-
 use crate::{
     geom::{Point, Rect},
-    style::{Glyph, Style},
+    style::{Color, Glyph, Style},
     surface::Pane,
 };
 
@@ -355,4 +326,25 @@ pub(crate) fn widget_render(widget: &mut dyn Widget, pane: &mut Pane, rect: Rect
 
     widget.draw(pane, rect);
     widget.set_damaged(false);
+}
+
+/// Merges an interaction style over a base style.
+#[inline]
+pub(crate) fn merge_style(base: Style, overlay: Style) -> Style {
+    if overlay == Style::default() {
+        return base;
+    }
+
+    let mut style = base;
+    style.add_flags(overlay.flags());
+
+    if overlay.fg() != Color::Default {
+        style = style.with_fg(overlay.fg());
+    }
+
+    if overlay.bg() != Color::Default {
+        style = style.with_bg(overlay.bg());
+    }
+
+    style
 }
