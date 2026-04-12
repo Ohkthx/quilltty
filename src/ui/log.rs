@@ -48,16 +48,21 @@ impl LogWidget {
         self
     }
 
+    /// Trims stored lines to the configured maximum entry count.
+    #[inline]
+    fn trim_to_max_entries(&mut self) {
+        if self.max_entries > 0 && self.lines.len() > self.max_entries {
+            let overflow = self.lines.len() - self.max_entries;
+            self.lines.drain(0..overflow);
+        }
+    }
+
     /// Appends a plain text line to the log.
     pub fn push(&mut self, log: impl Into<String>) {
         self.lines
             .push(StyledLine::with_spans([StyledSpan::new(log)]));
 
-        if self.max_entries > 0 && self.lines.len() > self.max_entries {
-            let overflow = self.lines.len() - self.max_entries;
-            self.lines.drain(0..overflow);
-        }
-
+        self.trim_to_max_entries();
         self.state_mut().set_damaged(true);
     }
 
@@ -65,11 +70,7 @@ impl LogWidget {
     pub fn push_line(&mut self, line: StyledLine) {
         self.lines.push(line);
 
-        if self.max_entries > 0 && self.lines.len() > self.max_entries {
-            let overflow = self.lines.len() - self.max_entries;
-            self.lines.drain(0..overflow);
-        }
-
+        self.trim_to_max_entries();
         self.state_mut().set_damaged(true);
     }
 
@@ -79,6 +80,7 @@ impl LogWidget {
         I: IntoIterator<Item = StyledLine>,
     {
         self.lines = lines.into_iter().collect();
+        self.trim_to_max_entries();
         self.state_mut().set_damaged(true);
     }
 
@@ -103,6 +105,16 @@ impl LogWidget {
         self.lines.is_empty()
     }
 
+    /// Resolves the effective style for a span.
+    #[inline]
+    fn resolved_span_style(&self, interaction_style: Style, span_style: Style) -> Style {
+        if interaction_style == Style::default() {
+            span_style
+        } else {
+            interaction_style
+        }
+    }
+
     /// Converts stored styled lines into physical rows that fit a given width.
     fn layout_rows(&self, width: usize, interaction_style: Style) -> Vec<Vec<Glyph>> {
         let mut rows = Vec::new();
@@ -111,11 +123,7 @@ impl LogWidget {
             let mut row = Vec::with_capacity(width);
 
             for span in line.spans() {
-                let span_style = if interaction_style == Style::default() {
-                    span.style
-                } else {
-                    interaction_style
-                };
+                let span_style = self.resolved_span_style(interaction_style, span.style);
 
                 for ch in span.text.chars() {
                     if row.len() >= width {

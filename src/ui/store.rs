@@ -25,6 +25,7 @@ pub struct WidgetHit {
 }
 
 /// Layout for a widget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WidgetLayout {
     Fixed(Rect), // Content-local rect; does not auto-resize with parent.
     Inset {
@@ -158,6 +159,72 @@ impl WidgetStore {
         self.index.insert(widget_id, pane_id);
 
         widget_id
+    }
+
+    /// Removes a widget from the store and invalidates its parent pane.
+    pub fn remove_widget(&mut self, widget_id: WidgetId) -> bool {
+        let Some(pane_id) = self.index.get(&widget_id).copied() else {
+            return false;
+        };
+
+        let Some(pane_widgets) = self.by_pane.get_mut(&pane_id) else {
+            self.index.remove(&widget_id);
+            return false;
+        };
+
+        if pane_widgets.entries.remove(&widget_id).is_none() {
+            self.index.remove(&widget_id);
+            return false;
+        }
+
+        if self.hovered == Some(widget_id) {
+            self.hovered = None;
+        }
+
+        if self.pressed == Some(widget_id) {
+            self.pressed = None;
+        }
+
+        if self.focused == Some(widget_id) {
+            self.focused = None;
+        }
+
+        pane_widgets.damaged_widgets.remove(&widget_id);
+        pane_widgets.full_damaged = true;
+        let should_remove_bucket = pane_widgets.entries.len() == 0;
+
+        self.index.remove(&widget_id);
+
+        if should_remove_bucket {
+            self.by_pane.remove(&pane_id);
+        }
+
+        true
+    }
+
+    /// Removes all widgets owned by the pane and clears related widget state.
+    pub fn remove_pane(&mut self, pane_id: PaneId) -> bool {
+        let Some(pane_widgets) = self.by_pane.remove(&pane_id) else {
+            return false;
+        };
+
+        for entry in pane_widgets.entries.iter() {
+            self.index.remove(&entry.id);
+
+            if self.hovered == Some(entry.id) {
+                self.hovered = None;
+            }
+
+            if self.pressed == Some(entry.id) {
+                self.pressed = None;
+            }
+
+            if self.focused == Some(entry.id) {
+                self.focused = None;
+            }
+        }
+
+        true
     }
 
     /// Returns true when any pane still has widget damage to flush.

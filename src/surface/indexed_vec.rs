@@ -81,16 +81,11 @@ where
         Some(&mut self.items[idx])
     }
 
-    /// Removes and returns the value identified by `key`.
+    /// Removes and returns the value identified by `key` while preserving order.
     pub fn remove(&mut self, key: &K) -> Option<V> {
         let idx = self.index.remove(key)?;
-        let removed = self.items.swap_remove(idx);
-
-        if idx < self.items.len() {
-            let moved_key = self.items[idx].key().clone();
-            self.index.insert(moved_key, idx);
-        }
-
+        let removed = self.items.remove(idx);
+        self.rebuild_index();
         Some(removed)
     }
 

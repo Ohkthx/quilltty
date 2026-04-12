@@ -129,7 +129,7 @@ pub struct Ui {
 
 impl Ui {
     // =========================================================================
-    // Construction, Rendering, and Building
+    // Construction, Destruction, Rendering, and Building
     // =========================================================================
 
     /// Creates a new UI with the given size and optional background glyph.
@@ -158,12 +158,39 @@ impl Ui {
         self.canvas.create_pane()
     }
 
+    /// Removes a pane and all widget state associated with it.
+    pub fn remove_pane(&mut self, pane_id: PaneId) -> bool {
+        if self.drag_targets_pane(pane_id) {
+            self.drag = None;
+        }
+
+        self.widgets.remove_pane(pane_id);
+        self.canvas.remove_pane(pane_id)
+    }
+
     /// Creates a widget inside the given pane.
     pub fn add_widget<W>(&mut self, pane_id: PaneId, widget: W, layout: WidgetLayout) -> WidgetId
     where
         W: Widget + 'static,
     {
         self.widgets.add_widget(pane_id, widget, layout)
+    }
+
+    /// Removes a widget from the UI at runtime.
+    pub fn remove_widget(&mut self, widget_id: WidgetId) -> bool {
+        let pane_id = self.widgets.pane_id_of(widget_id);
+        let was_focused = self.widgets.focused() == Some(widget_id);
+
+        let removed = self.widgets.remove_widget(widget_id);
+        if !removed {
+            return false;
+        }
+
+        if was_focused && self.canvas.focused() == pane_id {
+            self.canvas.set_cursor(None);
+        }
+
+        true
     }
 }
 
@@ -538,13 +565,7 @@ impl Ui {
 
         // Moving a pane changes the screen-space cursor location for any focused widget
         // inside it, so invalidate that pane to force cursor recomputation.
-        let focused_on_this_pane = self
-            .widgets
-            .focused()
-            .and_then(|widget_id| self.widgets.pane_id_of(widget_id))
-            == Some(pane_id);
-
-        if self.canvas.focused() == Some(pane_id) && focused_on_this_pane {
+        if self.canvas.focused() == Some(pane_id) && self.focused_widget_on_pane(pane_id) {
             self.widgets.invalidate_pane(pane_id);
         }
     }
@@ -560,13 +581,13 @@ impl Ui {
 
     /// Toggles pane visibility while cleaning up focus and hover state.
     pub fn toggle_pane_visibility(&mut self, pane_id: PaneId) {
-        let focused_on_this_pane = self
-            .widgets
-            .focused()
-            .and_then(|widget_id| self.widgets.pane_id_of(widget_id))
-            == Some(pane_id);
+        let will_hide = self
+            .canvas
+            .pane(pane_id)
+            .map(|pane| pane.visible)
+            .unwrap_or(false);
 
-        if focused_on_this_pane || self.canvas.focused() == Some(pane_id) {
+        if will_hide {
             self.cleanup_hidden_pane_state(pane_id);
         }
 
@@ -644,6 +665,7 @@ impl Ui {
         self.widgets.pane_id_of(widget_id)
     }
 
+    /// Edits a widget by id and returns the callback result when the widget exists.
     pub fn edit_widget<R>(
         &mut self,
         widget_id: WidgetId,
@@ -652,6 +674,7 @@ impl Ui {
         self.widgets.edit(widget_id, f)
     }
 
+    /// Edits a widget by id when it matches `T` and returns the callback result.
     pub fn edit_widget_as<T: 'static, R>(
         &mut self,
         widget_id: WidgetId,
@@ -767,6 +790,17 @@ impl Ui {
     // =========================================================================
     // Internal Helpers
     // =========================================================================
+    //
+    /// Returns true when the active pointer drag belongs to the pane.
+    fn drag_targets_pane(&self, pane_id: PaneId) -> bool {
+        matches!(
+            self.drag,
+            Some(PointerDrag::PaneMove { pane_id: id, .. })
+                | Some(PointerDrag::PaneResize { pane_id: id, .. })
+                | Some(PointerDrag::Content { pane_id: id, .. })
+            if id == pane_id
+        )
+    }
 
     /// Recomputes hover state after drag completion.
     fn sync_hover(&mut self, pos: Point) {
@@ -785,13 +819,7 @@ impl Ui {
     /// Clears focus and hover state associated with a pane being hidden.
     #[inline]
     fn cleanup_hidden_pane_state(&mut self, pane_id: PaneId) {
-        let focused_on_this_pane = self
-            .widgets
-            .focused()
-            .and_then(|widget_id| self.widgets.pane_id_of(widget_id))
-            == Some(pane_id);
-
-        if focused_on_this_pane {
+        if self.focused_widget_on_pane(pane_id) {
             self.widgets.focus(None);
             self.canvas.set_cursor(None);
         }
@@ -880,6 +908,15 @@ impl Ui {
             .unwrap_or(WidgetAction::Released);
 
         map_widget_action(widget_hit.widget_id, Some(widget_hit), action)
+    }
+
+    /// Returns true when the currently focused widget belongs to the pane.
+    #[inline]
+    fn focused_widget_on_pane(&self, pane_id: PaneId) -> bool {
+        self.widgets
+            .focused()
+            .and_then(|widget_id| self.widgets.pane_id_of(widget_id))
+            == Some(pane_id)
     }
 }
 

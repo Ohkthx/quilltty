@@ -90,6 +90,29 @@ impl Canvas {
         }
     }
 
+    /// Removes a pane from the canvas and damages its old screen region.
+    pub fn remove_pane(&mut self, pane_id: PaneId) -> bool {
+        let Some(old_rect) = self.pane(pane_id).map(Pane::rect) else {
+            return false;
+        };
+
+        if self.panes.remove(&pane_id).is_none() {
+            return false;
+        }
+
+        self.policies.remove(&pane_id);
+        self.decor.remove(&pane_id);
+
+        if self.focused == Some(pane_id) {
+            self.focused = None;
+            self.cursor = None;
+        }
+
+        self.mark_damaged(old_rect);
+        self.freed_ids.push(pane_id);
+        true
+    }
+
     /// Returns the canvas size.
     pub fn size(&self) -> Size {
         self.size

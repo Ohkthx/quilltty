@@ -119,7 +119,7 @@ impl Widget for ProgressWidget {
             let glyph = if bar_x < filled {
                 self.glyph
             } else {
-                Glyph::from(' ').with_style(Style::new())
+                Glyph::from(' ').with_style(style)
             };
 
             row.push(glyph);
