@@ -12,7 +12,7 @@ mod progress;
 mod slider;
 mod text;
 
-pub(crate) use traits::{merge_style, widget_render};
+pub(crate) use traits::{resolve_patched_style, widget_render};
 
 pub use builder::WidgetBuilder;
 pub use button::ButtonWidget;
@@ -23,4 +23,7 @@ pub use progress::ProgressWidget;
 pub use slider::SliderWidget;
 pub use store::{WidgetHit, WidgetId, WidgetLayout, WidgetStore};
 pub use text::{StyledLine, StyledSpan, TextWidget};
-pub use traits::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState};
+pub use traits::{
+    InteractionStyle, RichInteractionStyle, RichStylableWidgetExt, StylableWidgetExt, Widget,
+    WidgetAction, WidgetState,
+};

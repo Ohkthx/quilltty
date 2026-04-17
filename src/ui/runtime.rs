@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
-    render::Layer,
+    style::ColorAtlas,
     surface::{
         Canvas, Compositor, Glyph, HitTarget, Pane, PaneAction, PaneBuilder, PaneElement, PaneHit,
         PaneId, Point, Rect, Renderer, Size,
@@ -16,8 +16,7 @@ use crate::{
 };
 
 use super::widget::{
-    InputWidget, Widget, WidgetAction, WidgetBuilder, WidgetHit, WidgetId, WidgetLayout,
-    WidgetStore,
+    InputWidget, Widget, WidgetAction, WidgetBuilder, WidgetHit, WidgetId, WidgetStore,
 };
 
 /// Describes the kind of pane drag currently in progress.
@@ -129,6 +128,7 @@ pub struct Ui {
     compositor: Compositor,    // Flattens pane damage into a renderable frame.
     renderer: Renderer,        // Writes frame differences to the terminal.
     widgets: WidgetStore,      // Tracks widgets, focus, hover, and pressed state.
+    colors: ColorAtlas,        // Interns extended fg/bg pairs for rendering.
     drag: Option<PointerDrag>, // Active pointer drag session, if any.
 }
 
@@ -144,18 +144,31 @@ impl Ui {
             compositor: Compositor::new(width, height),
             renderer: Renderer::new(width, height, true),
             widgets: WidgetStore::new(),
+            colors: ColorAtlas::new(),
             drag: None,
         }
     }
 
     /// Renders widgets into panes, then flushes the composed frame to `out`.
     pub fn render_to<W: Write>(&mut self, out: &mut W) -> io::Result<()> {
-        self.widgets.render_into(&mut self.canvas);
+        let (widgets, canvas, colors) = (&mut self.widgets, &mut self.canvas, &mut self.colors);
+        widgets.render_into(canvas, colors);
+
         self.canvas
-            .render(&mut self.compositor, &mut self.renderer, out)?;
+            .render(&mut self.compositor, &mut self.renderer, &self.colors, out)?;
 
         out.flush()?;
         Ok(())
+    }
+
+    /// Returns an immutable reference to the color atlas.
+    pub fn colors(&self) -> &ColorAtlas {
+        &self.colors
+    }
+
+    /// Returns a mutable reference to the color atlas.
+    pub fn colors_mut(&mut self) -> &mut ColorAtlas {
+        &mut self.colors
     }
 
     /// Returns a builder for creating a new pane on the canvas.
@@ -802,7 +815,7 @@ impl Ui {
     // =========================================================================
     // Internal Helpers
     // =========================================================================
-    //
+
     /// Returns true when the active pointer drag belongs to the pane.
     fn drag_targets_pane(&self, pane_id: PaneId) -> bool {
         matches!(

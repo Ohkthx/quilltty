@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use crate::{
     Pane,
     geom::Point,
-    style::{Glyph, Rune, Style},
+    style::{Color, ColorAtlas, ColorSpec, Glyph, Rune, Style},
 };
 
 /// Z-Layer for rendering / priority.
@@ -285,6 +285,7 @@ impl Renderer {
         compositor: &Compositor,
         spans: &[DamagedRow],
         cursor: Option<Point>,
+        styles: &ColorAtlas,
         out: &mut W,
     ) -> io::Result<()> {
         let has_damage = spans.iter().any(|span| span.is_damaged());
@@ -297,7 +298,7 @@ impl Renderer {
 
         if has_damage {
             let (front, buf) = (&mut self.front, &mut self.buf);
-            Self::diff_damaged(front, &compositor.back, spans, buf);
+            Self::diff_damaged(front, &compositor.back, spans, styles, buf);
         }
 
         self.buf.extend(AnsiBuffer::RESET_STYLE);
@@ -319,7 +320,13 @@ impl Renderer {
 
     /// Compares only damaged spans between `front` and `back`, emits the minimal
     /// cursor/style/text updates, and updates `front` to match `back`.
-    fn diff_damaged(front: &mut Frame, back: &Frame, spans: &[DamagedRow], out: &mut AnsiBuffer) {
+    fn diff_damaged(
+        front: &mut Frame,
+        back: &Frame,
+        spans: &[DamagedRow],
+        styles: &ColorAtlas,
+        out: &mut AnsiBuffer,
+    ) {
         // Tracks the style currently active in the terminal so redundant style
         // sequences are avoided.
         let mut current_style = Style::default();
@@ -368,7 +375,7 @@ impl Renderer {
 
                         // Emit a style sequence only when the style changes.
                         if style != current_style {
-                            out.push_style(current_style, style);
+                            out.push_style(current_style, style, styles);
                             current_style = style;
                         }
 
@@ -395,26 +402,30 @@ impl Renderer {
 struct AnsiBuffer(Vec<u8>);
 
 impl AnsiBuffer {
-    const CSI: &[u8] = b"\x1b[";
-    const RESET_STYLE: &[u8] = b"\x1b[0m";
-    const HIDE_CURSOR: &[u8] = b"\x1b[?25l";
-    const SHOW_CURSOR: &[u8] = b"\x1b[?25h";
+    const CSI: &'static [u8] = b"\x1b[";
+    const RESET_STYLE: &'static [u8] = b"\x1b[0m";
+    const HIDE_CURSOR: &'static [u8] = b"\x1b[?25l";
+    const SHOW_CURSOR: &'static [u8] = b"\x1b[?25h";
 
+    /// Creates an ANSI output buffer with the requested capacity.
     fn new(capacity: usize) -> Self {
         Self(Vec::with_capacity(capacity))
     }
 
+    /// Clears the buffered ANSI output.
     fn clear(&mut self) {
         self.0.clear();
     }
 
+    /// Appends a raw byte slice.
     fn extend(&mut self, slice: &[u8]) {
         self.0.extend_from_slice(slice);
     }
 
-    /// Appends a decimal `usize` without allocation, using a fast two-digit table.
+    /// Appends a decimal `usize` without allocation.
     fn push_usize(&mut self, mut n: usize) {
-        const DIGITS_00_99: &[u8; 200] = b"00010203040506070809\
+        const DIGITS_00_99: &[u8; 200] = b"\
+            00010203040506070809\
             10111213141516171819\
             20212223242526272829\
             30313233343536373839\
@@ -436,7 +447,6 @@ impl AnsiBuffer {
         while n >= 100 {
             let rem = n % 100;
             n /= 100;
-
             i -= 2;
             tmp[i] = DIGITS_00_99[rem * 2];
             tmp[i + 1] = DIGITS_00_99[rem * 2 + 1];
@@ -454,101 +464,120 @@ impl AnsiBuffer {
         self.0.extend_from_slice(&tmp[i..]);
     }
 
-    /// Emits the minimal SGR sequence needed to transition from `prev` to `new`.
-    fn push_style(&mut self, prev: Style, new: Style) {
+    /// Emits one SGR numeric parameter.
+    fn push_sgr_param(&mut self, first: &mut bool, value: usize) {
+        if !*first {
+            self.0.push(b';');
+        }
+        self.push_usize(value);
+        *first = false;
+    }
+
+    /// Emits one color transition parameter sequence.
+    fn push_color_param(&mut self, first: &mut bool, foreground: bool, color: ColorSpec) {
+        match color {
+            ColorSpec::Default => {
+                self.push_sgr_param(first, if foreground { 39 } else { 49 });
+            }
+            ColorSpec::Ansi16(color) => {
+                let code = match color {
+                    Color::Default => {
+                        if foreground {
+                            39
+                        } else {
+                            49
+                        }
+                    }
+                    other => {
+                        if foreground {
+                            other.fg_code() as usize
+                        } else {
+                            other.bg_code() as usize
+                        }
+                    }
+                };
+                self.push_sgr_param(first, code);
+            }
+            ColorSpec::Ansi256(index) => {
+                self.push_sgr_param(first, if foreground { 38 } else { 48 });
+                self.push_sgr_param(first, 5);
+                self.push_sgr_param(first, index as usize);
+            }
+            ColorSpec::Rgb(r, g, b) => {
+                self.push_sgr_param(first, if foreground { 38 } else { 48 });
+                self.push_sgr_param(first, 2);
+                self.push_sgr_param(first, r as usize);
+                self.push_sgr_param(first, g as usize);
+                self.push_sgr_param(first, b as usize);
+            }
+        }
+    }
+
+    /// Emits the minimal SGR sequence needed to transition styles.
+    fn push_style(&mut self, prev: Style, new: Style, styles: &ColorAtlas) {
         if prev == new {
             return;
         }
 
         let mut first = true;
-
         let prev_flags = prev.flags();
         let new_flags = new.flags();
-
-        let prev_fg = prev.fg();
-        let prev_bg = prev.bg();
-
-        let new_fg = new.fg();
-        let new_bg = new.bg();
+        let prev_pair = styles.resolve_pair(prev.pair_id());
+        let new_pair = styles.resolve_pair(new.pair_id());
 
         self.0.extend_from_slice(Self::CSI);
 
-        macro_rules! emit_num {
-            ($num:expr) => {{
-                if !first {
-                    self.0.push(b';');
-                }
-                self.push_usize($num);
-                first = false;
-            }};
-        }
-
         // Disable flags.
-
         if (prev_flags & (Style::FLAG_BOLD | Style::FLAG_DIM)) != 0
             && (new_flags & (Style::FLAG_BOLD | Style::FLAG_DIM)) == 0
         {
-            emit_num!(22);
+            self.push_sgr_param(&mut first, 22);
         }
-
-        if (prev_flags & Style::FLAG_ITALIC != 0) && (new_flags & Style::FLAG_ITALIC == 0) {
-            emit_num!(23);
+        if (prev_flags & Style::FLAG_ITALIC) != 0 && (new_flags & Style::FLAG_ITALIC) == 0 {
+            self.push_sgr_param(&mut first, 23);
         }
-
-        if (prev_flags & Style::FLAG_UNDERLINE != 0) && (new_flags & Style::FLAG_UNDERLINE == 0) {
-            emit_num!(24);
+        if (prev_flags & Style::FLAG_UNDERLINE) != 0 && (new_flags & Style::FLAG_UNDERLINE) == 0 {
+            self.push_sgr_param(&mut first, 24);
         }
-
-        if (prev_flags & Style::FLAG_BLINK != 0) && (new_flags & Style::FLAG_BLINK == 0) {
-            emit_num!(25);
+        if (prev_flags & Style::FLAG_BLINK) != 0 && (new_flags & Style::FLAG_BLINK) == 0 {
+            self.push_sgr_param(&mut first, 25);
         }
-
-        if (prev_flags & Style::FLAG_INVERSE != 0) && (new_flags & Style::FLAG_INVERSE == 0) {
-            emit_num!(27);
+        if (prev_flags & Style::FLAG_INVERSE) != 0 && (new_flags & Style::FLAG_INVERSE) == 0 {
+            self.push_sgr_param(&mut first, 27);
         }
-
-        if (prev_flags & Style::FLAG_STRIKE != 0) && (new_flags & Style::FLAG_STRIKE == 0) {
-            emit_num!(29);
+        if (prev_flags & Style::FLAG_STRIKE) != 0 && (new_flags & Style::FLAG_STRIKE) == 0 {
+            self.push_sgr_param(&mut first, 29);
         }
 
         // Enable flags.
-
-        if (new_flags & Style::FLAG_BOLD != 0) && (prev_flags & Style::FLAG_BOLD == 0) {
-            emit_num!(1);
+        if (new_flags & Style::FLAG_BOLD) != 0 && (prev_flags & Style::FLAG_BOLD) == 0 {
+            self.push_sgr_param(&mut first, 1);
         }
-
-        if (new_flags & Style::FLAG_DIM != 0) && (prev_flags & Style::FLAG_DIM == 0) {
-            emit_num!(2);
+        if (new_flags & Style::FLAG_DIM) != 0 && (prev_flags & Style::FLAG_DIM) == 0 {
+            self.push_sgr_param(&mut first, 2);
         }
-
-        if (new_flags & Style::FLAG_ITALIC != 0) && (prev_flags & Style::FLAG_ITALIC == 0) {
-            emit_num!(3);
+        if (new_flags & Style::FLAG_ITALIC) != 0 && (prev_flags & Style::FLAG_ITALIC) == 0 {
+            self.push_sgr_param(&mut first, 3);
         }
-
-        if (new_flags & Style::FLAG_UNDERLINE != 0) && (prev_flags & Style::FLAG_UNDERLINE == 0) {
-            emit_num!(4);
+        if (new_flags & Style::FLAG_UNDERLINE) != 0 && (prev_flags & Style::FLAG_UNDERLINE) == 0 {
+            self.push_sgr_param(&mut first, 4);
         }
-
-        if (new_flags & Style::FLAG_BLINK != 0) && (prev_flags & Style::FLAG_BLINK == 0) {
-            emit_num!(5);
+        if (new_flags & Style::FLAG_BLINK) != 0 && (prev_flags & Style::FLAG_BLINK) == 0 {
+            self.push_sgr_param(&mut first, 5);
         }
-
-        if (new_flags & Style::FLAG_INVERSE != 0) && (prev_flags & Style::FLAG_INVERSE == 0) {
-            emit_num!(7);
+        if (new_flags & Style::FLAG_INVERSE) != 0 && (prev_flags & Style::FLAG_INVERSE) == 0 {
+            self.push_sgr_param(&mut first, 7);
         }
-
-        if (new_flags & Style::FLAG_STRIKE != 0) && (prev_flags & Style::FLAG_STRIKE == 0) {
-            emit_num!(9);
+        if (new_flags & Style::FLAG_STRIKE) != 0 && (prev_flags & Style::FLAG_STRIKE) == 0 {
+            self.push_sgr_param(&mut first, 9);
         }
 
         // Colors.
-
-        if prev_fg != new_fg {
-            emit_num!(new_fg.fg_code() as usize);
+        if prev_pair.fg != new_pair.fg {
+            self.push_color_param(&mut first, true, new_pair.fg);
         }
-
-        if prev_bg != new_bg {
-            emit_num!(new_bg.bg_code() as usize);
+        if prev_pair.bg != new_pair.bg {
+            self.push_color_param(&mut first, false, new_pair.bg);
         }
 
         if !first {
@@ -556,6 +585,7 @@ impl AnsiBuffer {
         }
     }
 
+    /// Appends a rune to the output buffer.
     fn push_rune(&mut self, rune: &Rune) {
         self.0.extend_from_slice(&rune.bytes[..rune.len as usize]);
     }

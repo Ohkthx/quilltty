@@ -1,10 +1,12 @@
 //! File: src/ui/widget/log.rs
 
-use super::{InteractionStyle, StylableWidgetExt, Widget, WidgetState, merge_style};
+use super::{
+    RichInteractionStyle, RichStylableWidgetExt, Widget, WidgetState, resolve_patched_style,
+};
 use crate::{
     StyledLine, StyledSpan,
     geom::{Point, Rect},
-    style::{Glyph, Style},
+    style::{ColorAtlas, Glyph, Style, StylePatch},
     surface::Pane,
 };
 
@@ -12,7 +14,7 @@ use crate::{
 #[derive(Default)]
 pub struct LogWidget {
     pub(crate) state: WidgetState, // Tracks hover/focus/pressed/damaged state.
-    pub interaction: InteractionStyle, // Styles applied during widget interaction.
+    pub interaction: RichInteractionStyle, // Sparse interaction patch set.
     lines: Vec<StyledLine>,        // Stored logical log lines.
     wrap: bool,                    // Wrap long lines across multiple rows when true.
     ascending: bool,               // Anchor newest visible rows at the bottom when true.
@@ -107,19 +109,29 @@ impl LogWidget {
 
     /// Resolves the effective style for a span.
     #[inline]
-    fn resolved_span_style(&self, interaction_style: Style, span_style: Style) -> Style {
-        merge_style(span_style, interaction_style)
+    fn resolved_span_style(
+        &self,
+        colors: &mut ColorAtlas,
+        patch: StylePatch,
+        span_style: Style,
+    ) -> Style {
+        resolve_patched_style(colors, span_style, patch)
     }
 
     /// Converts stored styled lines into physical rows that fit a given width.
-    fn layout_rows(&self, width: usize, interaction_style: Style) -> Vec<Vec<Glyph>> {
+    fn layout_rows(
+        &self,
+        colors: &mut ColorAtlas,
+        width: usize,
+        patch: StylePatch,
+    ) -> Vec<Vec<Glyph>> {
         let mut rows = Vec::new();
 
         for line in &self.lines {
             let mut row = Vec::with_capacity(width);
 
             for span in line.spans() {
-                let span_style = self.resolved_span_style(interaction_style, span.style);
+                let span_style = self.resolved_span_style(colors, patch, span.style);
 
                 for ch in span.text.chars() {
                     if row.len() >= width {
@@ -162,17 +174,17 @@ impl Widget for LogWidget {
         &mut self.state
     }
 
-    fn interaction(&self) -> Option<&InteractionStyle> {
+    fn rich_interaction(&self) -> Option<&RichInteractionStyle> {
         Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+    fn rich_interaction_mut(&mut self) -> Option<&mut RichInteractionStyle> {
         Some(&mut self.interaction)
     }
 
-    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
-        let style = self.interaction.style(&self.state);
-        let rows = self.layout_rows(rect.width, style);
+    fn draw_with_colors(&mut self, pane: &mut Pane, rect: Rect, colors: &mut ColorAtlas) {
+        let patch = self.interaction.patch(&self.state);
+        let rows = self.layout_rows(colors, rect.width, patch);
 
         let visible_len = rows.len().min(rect.height);
         let start = if self.ascending {
@@ -196,4 +208,4 @@ impl Widget for LogWidget {
     }
 }
 
-impl StylableWidgetExt for LogWidget {}
+impl RichStylableWidgetExt for LogWidget {}

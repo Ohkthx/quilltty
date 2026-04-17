@@ -2,23 +2,26 @@
 
 use crossterm::event::KeyCode;
 
-use super::{InteractionStyle, StylableWidgetExt, Widget, WidgetAction, WidgetState, merge_style};
+use super::{
+    RichInteractionStyle, RichStylableWidgetExt, Widget, WidgetAction, WidgetState,
+    resolve_patched_style,
+};
 use crate::{
     geom::{Point, Rect},
-    style::{Glyph, Style},
+    style::{ColorAtlas, Glyph, Style},
     surface::Pane,
 };
 
 /// A widget that allows text entry.
 pub struct InputWidget {
-    pub(crate) state: WidgetState,     // Current state.
-    pub interaction: InteractionStyle, // Style for interaction.
-    label: Option<String>,             // Label to display.
-    label_style: Style,                // Style used to render the label of the widget.
-    style: Style,                      // Style used to render the widget.
-    placeholder: Option<String>,       // Placeholder text when empty.
-    buffer: String,                    // Stores the text already entered.
-    cursor: usize,                     // Cursor position in bytes.
+    pub(crate) state: WidgetState,         // Current state.
+    pub interaction: RichInteractionStyle, // Sparse interaction patch set.
+    label: Option<String>,                 // Label to display.
+    label_style: Style,                    // Style used to render the label of the widget.
+    style: Style,                          // Style used to render the widget.
+    placeholder: Option<String>,           // Placeholder text when empty.
+    buffer: String,                        // Stores the text already entered.
+    cursor: usize,                         // Cursor position in bytes.
 }
 
 impl InputWidget {
@@ -30,7 +33,7 @@ impl InputWidget {
     {
         Self {
             state: WidgetState::default(),
-            interaction: InteractionStyle::default(),
+            interaction: RichInteractionStyle::default(),
             label: label.map(Into::into),
             label_style: Style::default(),
             style: Style::new().underline(),
@@ -40,7 +43,7 @@ impl InputWidget {
         }
     }
 
-    /// Sets the render style for this widget.
+    /// Sets the render style for this widget's label.
     #[must_use]
     pub fn with_label_style(mut self, style: Style) -> Self {
         self.label_style = style;
@@ -48,7 +51,7 @@ impl InputWidget {
         self
     }
 
-    /// Sets the render style for this widget.
+    /// Sets the render style for this widget's input text.
     #[must_use]
     pub fn with_style(mut self, style: Style) -> Self {
         self.style = style;
@@ -124,11 +127,11 @@ impl InputWidget {
     }
 
     /// Renders a multiline `InputWidget`.
-    fn render_multiline(&self, pane: &mut Pane, rect: Rect) {
+    fn render_multiline(&self, pane: &mut Pane, rect: Rect, colors: &mut ColorAtlas) {
         let Rect { x, y, width, .. } = rect;
 
         if let Some(label) = self.label.as_deref() {
-            self.draw_text(pane, Point::new(x, y), label, true, width);
+            self.draw_text(colors, pane, Point::new(x, y), label, true, width);
         }
 
         let input_row = usize::from(self.label.is_some());
@@ -138,11 +141,18 @@ impl InputWidget {
             &self.buffer
         };
 
-        self.draw_text(pane, Point::new(x, y + input_row), text, false, width);
+        self.draw_text(
+            colors,
+            pane,
+            Point::new(x, y + input_row),
+            text,
+            false,
+            width,
+        );
     }
 
     /// Renders a single-line `InputWidget`.
-    fn render_single_line(&self, pane: &mut Pane, rect: Rect) {
+    fn render_single_line(&self, pane: &mut Pane, rect: Rect, colors: &mut ColorAtlas) {
         let Rect {
             x: ox,
             y: oy,
@@ -153,7 +163,7 @@ impl InputWidget {
 
         if let Some(label) = self.label.as_deref() {
             let prefix = format!("{label}: ");
-            x += self.draw_text(pane, Point::new(ox + x, oy), &prefix, true, width);
+            x += self.draw_text(colors, pane, Point::new(ox + x, oy), &prefix, true, width);
         }
 
         if x >= width {
@@ -167,6 +177,7 @@ impl InputWidget {
         };
 
         self.draw_text(
+            colors,
             pane,
             Point::new(ox + x, oy),
             text,
@@ -216,6 +227,7 @@ impl InputWidget {
     /// Draws text into the `Pane`.
     fn draw_text(
         &self,
+        colors: &mut ColorAtlas,
         pane: &mut Pane,
         origin: Point,
         text: &str,
@@ -223,7 +235,8 @@ impl InputWidget {
         width: usize,
     ) -> usize {
         let base_style = if label { self.label_style } else { self.style };
-        let style = merge_style(base_style, self.interaction.style(&self.state));
+        let patch = self.interaction.patch(&self.state);
+        let style = resolve_patched_style(colors, base_style, patch);
 
         let glyphs: Vec<Glyph> = text
             .chars()
@@ -257,19 +270,19 @@ impl Widget for InputWidget {
         &mut self.state
     }
 
-    fn interaction(&self) -> Option<&InteractionStyle> {
+    fn rich_interaction(&self) -> Option<&RichInteractionStyle> {
         Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+    fn rich_interaction_mut(&mut self) -> Option<&mut RichInteractionStyle> {
         Some(&mut self.interaction)
     }
 
-    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
+    fn draw_with_colors(&mut self, pane: &mut Pane, rect: Rect, colors: &mut ColorAtlas) {
         if rect.height > 1 {
-            self.render_multiline(pane, rect);
+            self.render_multiline(pane, rect, colors);
         } else {
-            self.render_single_line(pane, rect);
+            self.render_single_line(pane, rect, colors);
         }
     }
 
@@ -294,4 +307,4 @@ impl Widget for InputWidget {
     }
 }
 
-impl StylableWidgetExt for InputWidget {}
+impl RichStylableWidgetExt for InputWidget {}

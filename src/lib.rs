@@ -1,10 +1,11 @@
 //! File: src/lib.rs
 
 mod surface;
+
 pub mod terminal;
 pub mod ui;
 
-/// Re-exports of the `crossterm` event types used by Quilltty's public API.
+/// Re-exports of the `crossterm` event types used by QuillTTY's public API.
 pub mod crossterm {
     /// Event types re-exported from `crossterm`.
     pub mod event {
@@ -16,7 +17,9 @@ pub mod crossterm {
 }
 
 pub mod style {
-    pub use crate::surface::{BorderKind, Color, Glyph, Rune, Style};
+    pub use crate::surface::{
+        BorderKind, Color, ColorAtlas, ColorPair, ColorSpec, Glyph, Rune, Style, StylePatch,
+    };
 }
 
 pub mod geom {
@@ -37,13 +40,19 @@ pub mod prelude {
         Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
         MouseEventKind,
     };
+
     pub use crate::geom::{Point, Rect, Size};
-    pub use crate::style::{BorderKind, Color, Glyph, Style};
+
+    pub use crate::style::{
+        BorderKind, Color, ColorAtlas, ColorPair, ColorSpec, Glyph, Style, StylePatch,
+    };
     pub use crate::terminal::{Input, Terminal, TerminalOptions};
+
     pub use crate::ui::{
-        ButtonWidget, CheckboxWidget, InputWidget, LogWidget, PaneDragKind, PaneId, ProgressWidget,
-        SliderWidget, StylableWidgetExt, StyledLine, StyledSpan, TextWidget, Ui, UiEvent, Widget,
-        WidgetBuilder, WidgetHit, WidgetId, WidgetLayout,
+        ButtonWidget, CheckboxWidget, InputWidget, InteractionStyle, LogWidget, PaneDragKind,
+        PaneId, ProgressWidget, RichInteractionStyle, RichStylableWidgetExt, SliderWidget,
+        StylableWidgetExt, StyledLine, StyledSpan, TextWidget, Ui, UiEvent, Widget, WidgetBuilder,
+        WidgetHit, WidgetId, WidgetLayout,
     };
 }
 
@@ -51,9 +60,10 @@ pub use crate::crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 pub use terminal::{Input, Terminal, TerminalOptions};
+
 pub use ui::{
     ButtonWidget, Canvas, CheckboxWidget, InputWidget, InteractionStyle, LogWidget, Pane,
-    PaneBuilder, PaneDragKind, PaneId, ProgressWidget, SliderWidget, StylableWidgetExt, StyledLine,
-    StyledSpan, TextWidget, Ui, UiEvent, Widget, WidgetAction, WidgetBuilder, WidgetHit, WidgetId,
-    WidgetLayout, WidgetStore,
+    PaneBuilder, PaneDragKind, PaneId, ProgressWidget, RichInteractionStyle, RichStylableWidgetExt,
+    SliderWidget, StylableWidgetExt, StyledLine, StyledSpan, TextWidget, Ui, UiEvent, Widget,
+    WidgetAction, WidgetBuilder, WidgetHit, WidgetId, WidgetLayout, WidgetStore,
 };

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::{Widget, WidgetBuilder, widget_render};
 use crate::surface::{
-    Canvas, Layer, Pane, PaneId, Point, Rect,
+    Canvas, ColorAtlas, Layer, Pane, PaneId, Point, Rect,
     indexed_vec::{IndexedVec, Keyed},
 };
 
@@ -264,6 +264,7 @@ impl WidgetStore {
         pane_is_focused: bool,
         focused_widget: Option<WidgetId>,
         force_damage: bool,
+        colors: &mut ColorAtlas,
     ) -> Option<Point> {
         if !entry.visible || !entry.enabled {
             return None;
@@ -275,7 +276,7 @@ impl WidgetStore {
             entry.widget.set_damaged(true); // Forced redraw for full pane damage.
         }
 
-        widget_render(entry.widget.as_mut(), pane, rect);
+        widget_render(entry.widget.as_mut(), pane, rect, colors);
 
         if pane_is_focused && focused_widget == Some(entry.id) {
             return entry.widget.cursor_pos(pane, rect);
@@ -285,7 +286,7 @@ impl WidgetStore {
     }
 
     /// Renders only dirty widgets unless the pane needs a full layout pass.
-    pub fn render_into(&mut self, canvas: &mut Canvas) {
+    pub fn render_into(&mut self, canvas: &mut Canvas, colors: &mut ColorAtlas) {
         let focused_widget = self.focused;
 
         for (&pane_id, widgets) in self.by_pane.iter_mut() {
@@ -330,6 +331,7 @@ impl WidgetStore {
                         pane_is_focused,
                         focused_widget,
                         redraw,
+                        colors,
                     ) {
                         focused_cursor = Some(cursor);
                     }

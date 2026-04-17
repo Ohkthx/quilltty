@@ -1,4 +1,4 @@
-//! File: src/ui/widget/widget.rs
+//! File: src/ui/widget/traits.rs
 
 use std::any::Any;
 
@@ -6,10 +6,11 @@ use crossterm::event::KeyCode;
 
 use crate::{
     geom::{Point, Rect},
-    style::{Color, Glyph, Style},
-    surface::Pane,
+    style::{ColorAtlas, Glyph, Style},
+    surface::{Pane, StylePatch},
 };
 
+/// High-level actions emitted by widgets during input handling.
 #[derive(Debug)]
 pub enum WidgetAction {
     None,
@@ -25,23 +26,28 @@ pub enum WidgetAction {
     Custom(Box<dyn Any + Send>),
 }
 
+/// Fully resolved interaction styles for simple widgets.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InteractionStyle {
+    /// Style used when the widget is idle.
     pub normal: Style,
+    /// Style used while the widget is hovered.
     pub hover: Style,
+    /// Style used while the widget is pressed.
     pub pressed: Style,
+    /// Style used while the widget is focused.
     pub focused: Style,
 }
 
 impl InteractionStyle {
-    /// Obtains the style for the state provided, otherwise default style provided.
+    /// Returns the resolved style for the provided widget state.
     #[inline]
     pub fn style(&self, state: &WidgetState) -> Style {
-        if state.pressed {
+        if state.is_pressed() {
             self.pressed
-        } else if state.hovered {
+        } else if state.is_hovered() {
             self.hover
-        } else if state.focused {
+        } else if state.is_focused() {
             self.focused
         } else {
             self.normal
@@ -49,7 +55,54 @@ impl InteractionStyle {
     }
 }
 
-/// Current state for a `Widget`.
+/// State-driven sparse interaction patches for rich widgets.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RichInteractionStyle {
+    /// Patch used when the widget is idle.
+    pub normal: StylePatch,
+    /// Patch used while the widget is hovered.
+    pub hover: StylePatch,
+    /// Patch used while the widget is pressed.
+    pub pressed: StylePatch,
+    /// Patch used while the widget is focused.
+    pub focused: StylePatch,
+}
+
+impl RichInteractionStyle {
+    /// Returns the sparse patch for the provided widget state.
+    #[inline]
+    pub fn patch(&self, state: &WidgetState) -> StylePatch {
+        if state.is_pressed() {
+            self.pressed
+        } else if state.is_hovered() {
+            self.hover
+        } else if state.is_focused() {
+            self.focused
+        } else {
+            self.normal
+        }
+    }
+}
+
+/// Resolves a sparse patch against an already resolved base style.
+#[inline]
+pub(crate) fn resolve_patched_style(
+    colors: &mut ColorAtlas,
+    base: Style,
+    patch: StylePatch,
+) -> Style {
+    if patch.is_empty() {
+        return base;
+    }
+
+    let pair = colors.resolve_pair(base.pair_id());
+    let fg = patch.fg.unwrap_or(pair.fg);
+    let bg = patch.bg.unwrap_or(pair.bg);
+
+    colors.style(base.flags() | patch.add_flags, fg, bg)
+}
+
+/// Current interaction and damage state for a widget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WidgetState {
     hovered: bool, // Hover marker.
@@ -94,25 +147,25 @@ impl WidgetState {
         }
     }
 
-    /// Gets the hovered state for the widget.
+    /// Returns `true` when the widget is hovered.
     #[inline]
     pub fn is_hovered(&self) -> bool {
         self.hovered
     }
 
-    /// Gets the pressed state for the widget.
+    /// Returns `true` when the widget is pressed.
     #[inline]
     pub fn is_pressed(&self) -> bool {
         self.pressed
     }
 
-    /// Gets the focused state for the widget.
+    /// Returns `true` when the widget is focused.
     #[inline]
     pub fn is_focused(&self) -> bool {
         self.focused
     }
 
-    /// Gets the damaged state for the widget.
+    /// Returns `true` when the widget needs redraw.
     #[inline]
     fn is_damaged(&self) -> bool {
         self.damaged
@@ -130,6 +183,7 @@ impl Default for WidgetState {
     }
 }
 
+/// Common behavior shared by all widgets.
 pub trait Widget: Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -147,9 +201,27 @@ pub trait Widget: Any {
         None
     }
 
+    #[inline]
+    fn rich_interaction(&self) -> Option<&RichInteractionStyle> {
+        None
+    }
+
+    #[inline]
+    fn rich_interaction_mut(&mut self) -> Option<&mut RichInteractionStyle> {
+        None
+    }
+
     // Rendering
 
-    fn draw(&mut self, pane: &mut Pane, rect: Rect);
+    /// Draws the widget when no color-atlas access is needed.
+    #[inline]
+    fn draw(&mut self, _pane: &mut Pane, _rect: Rect) {}
+
+    /// Draws the widget with mutable access to the color atlas when needed.
+    #[inline]
+    fn draw_with_colors(&mut self, pane: &mut Pane, rect: Rect, _colors: &mut ColorAtlas) {
+        self.draw(pane, rect);
+    }
 
     #[inline]
     fn cursor_pos(&self, _pane: &Pane, _rect: Rect) -> Option<Point> {
@@ -246,8 +318,17 @@ pub trait Widget: Any {
     #[inline]
     fn clear_style(&self) -> Style {
         self.interaction()
-            .map(|i| i.style(self.state()))
+            .map(|interaction| interaction.style(self.state()))
             .unwrap_or_default()
+    }
+
+    #[inline]
+    fn clear_style_with_colors(&self, colors: &mut ColorAtlas) -> Style {
+        if let Some(interaction) = self.rich_interaction() {
+            resolve_patched_style(colors, Style::default(), interaction.patch(self.state()))
+        } else {
+            self.clear_style()
+        }
     }
 
     #[inline]
@@ -310,7 +391,63 @@ pub trait StylableWidgetExt: Widget + Sized {
     }
 }
 
-pub(crate) fn widget_render(widget: &mut dyn Widget, pane: &mut Pane, rect: Rect) {
+/// Fluent interaction-patch builders for widgets that expose
+/// `rich_interaction_mut() -> Some(...)`.
+pub trait RichStylableWidgetExt: Widget + Sized {
+    #[must_use]
+    fn with_rich_interaction(mut self, interaction: RichInteractionStyle) -> Self {
+        *self
+            .rich_interaction_mut()
+            .expect("RichStylableWidgetExt requires rich_interaction_mut() to return Some(..)") =
+            interaction;
+        self.set_damaged(true);
+        self
+    }
+
+    #[must_use]
+    fn with_normal_interaction_patch(mut self, patch: StylePatch) -> Self {
+        self.rich_interaction_mut()
+            .expect("RichStylableWidgetExt requires rich_interaction_mut() to return Some(..)")
+            .normal = patch;
+        self.set_damaged(true);
+        self
+    }
+
+    #[must_use]
+    fn with_hover_interaction_patch(mut self, patch: StylePatch) -> Self {
+        self.rich_interaction_mut()
+            .expect("RichStylableWidgetExt requires rich_interaction_mut() to return Some(..)")
+            .hover = patch;
+        self.set_damaged(true);
+        self
+    }
+
+    #[must_use]
+    fn with_pressed_interaction_patch(mut self, patch: StylePatch) -> Self {
+        self.rich_interaction_mut()
+            .expect("RichStylableWidgetExt requires rich_interaction_mut() to return Some(..)")
+            .pressed = patch;
+        self.set_damaged(true);
+        self
+    }
+
+    #[must_use]
+    fn with_focus_interaction_patch(mut self, patch: StylePatch) -> Self {
+        self.rich_interaction_mut()
+            .expect("RichStylableWidgetExt requires rich_interaction_mut() to return Some(..)")
+            .focused = patch;
+        self.set_damaged(true);
+        self
+    }
+}
+
+/// Draws a widget when it has pending damage.
+pub(crate) fn widget_render(
+    widget: &mut dyn Widget,
+    pane: &mut Pane,
+    rect: Rect,
+    colors: &mut ColorAtlas,
+) {
     if !widget.state().is_damaged() {
         return;
     }
@@ -321,30 +458,9 @@ pub(crate) fn widget_render(widget: &mut dyn Widget, pane: &mut Pane, rect: Rect
     }
 
     if widget.clear_before_draw() {
-        widget.clear_content(pane, rect, widget.clear_style());
+        widget.clear_content(pane, rect, widget.clear_style_with_colors(colors));
     }
 
-    widget.draw(pane, rect);
+    widget.draw_with_colors(pane, rect, colors);
     widget.set_damaged(false);
-}
-
-/// Merges an interaction style over a base style.
-#[inline]
-pub(crate) fn merge_style(base: Style, overlay: Style) -> Style {
-    if overlay == Style::default() {
-        return base;
-    }
-
-    let mut style = base;
-    style.add_flags(overlay.flags());
-
-    if overlay.fg() != Color::Default {
-        style = style.with_fg(overlay.fg());
-    }
-
-    if overlay.bg() != Color::Default {
-        style = style.with_bg(overlay.bg());
-    }
-
-    style
 }

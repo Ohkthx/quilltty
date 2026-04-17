@@ -1,9 +1,11 @@
 //! File: src/ui/widget/text.rs
 
-use super::{InteractionStyle, StylableWidgetExt, Widget, WidgetState, merge_style};
+use super::{
+    RichInteractionStyle, RichStylableWidgetExt, Widget, WidgetState, resolve_patched_style,
+};
 use crate::{
     geom::{Point, Rect},
-    style::{Glyph, Style},
+    style::{ColorAtlas, Glyph, Style, StylePatch},
     surface::Pane,
 };
 
@@ -146,10 +148,10 @@ impl StyledLine {
 /// A text widget that renders styled lines with optional wrapping.
 #[derive(Default)]
 pub struct TextWidget {
-    pub(crate) state: WidgetState,     // Current state.
-    pub interaction: InteractionStyle, // Style for interaction.
-    lines: Vec<StyledLine>,            // Lines to be displayed.
-    wrap: bool,                        // Wrapped text goes to the next line.
+    pub(crate) state: WidgetState,         // Current state.
+    pub interaction: RichInteractionStyle, // Sparse interaction patch set.
+    lines: Vec<StyledLine>,                // Lines to be displayed.
+    wrap: bool,                            // Wrapped text goes to the next line.
 }
 
 impl TextWidget {
@@ -222,8 +224,13 @@ impl TextWidget {
 
     /// Resolves the effective style for a span.
     #[inline]
-    fn resolved_span_style(&self, interaction_style: Style, span_style: Style) -> Style {
-        merge_style(span_style, interaction_style)
+    fn resolved_span_style(
+        &self,
+        colors: &mut ColorAtlas,
+        patch: StylePatch,
+        span_style: Style,
+    ) -> Style {
+        resolve_patched_style(colors, span_style, patch)
     }
 
     /// Flushes one prepared row into the pane.
@@ -252,16 +259,16 @@ impl Widget for TextWidget {
         &mut self.state
     }
 
-    fn interaction(&self) -> Option<&InteractionStyle> {
+    fn rich_interaction(&self) -> Option<&RichInteractionStyle> {
         Some(&self.interaction)
     }
 
-    fn interaction_mut(&mut self) -> Option<&mut InteractionStyle> {
+    fn rich_interaction_mut(&mut self) -> Option<&mut RichInteractionStyle> {
         Some(&mut self.interaction)
     }
 
-    fn draw(&mut self, pane: &mut Pane, rect: Rect) {
-        let style = self.interaction.style(&self.state);
+    fn draw_with_colors(&mut self, pane: &mut Pane, rect: Rect, colors: &mut ColorAtlas) {
+        let patch = self.interaction.patch(&self.state);
 
         let mut out_y = 0;
         let mut row = Vec::with_capacity(rect.width);
@@ -270,7 +277,7 @@ impl Widget for TextWidget {
             row.clear();
 
             for span in line.spans() {
-                let span_style = self.resolved_span_style(style, span.style);
+                let span_style = self.resolved_span_style(colors, patch, span.style);
 
                 for ch in span.text.chars() {
                     if row.len() >= rect.width {
@@ -304,4 +311,4 @@ impl Widget for TextWidget {
     }
 }
 
-impl StylableWidgetExt for TextWidget {}
+impl RichStylableWidgetExt for TextWidget {}

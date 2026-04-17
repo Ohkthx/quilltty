@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+use super::style::Style;
+
 /// Characters used to draw boxes around panes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BoxDraw {
@@ -26,6 +28,7 @@ pub(crate) enum BoxDraw {
 }
 
 impl From<BoxDraw> for char {
+    /// Converts a box-drawing marker into a Unicode character.
     fn from(value: BoxDraw) -> Self {
         match value {
             BoxDraw::Horizontal => '─',
@@ -60,6 +63,7 @@ pub enum BorderKind {
 }
 
 impl BorderKind {
+    /// Returns the horizontal box-drawing glyph for this border kind.
     pub(crate) const fn horizontal(self) -> BoxDraw {
         match self {
             BorderKind::Single | BorderKind::Rounded => BoxDraw::Horizontal,
@@ -67,6 +71,7 @@ impl BorderKind {
         }
     }
 
+    /// Returns the vertical box-drawing glyph for this border kind.
     pub(crate) const fn vertical(self) -> BoxDraw {
         match self {
             BorderKind::Single | BorderKind::Rounded => BoxDraw::Vertical,
@@ -74,6 +79,7 @@ impl BorderKind {
         }
     }
 
+    /// Returns the top-left corner glyph for this border kind.
     pub(crate) const fn top_left(self) -> BoxDraw {
         match self {
             BorderKind::Single => BoxDraw::TopLeft,
@@ -82,6 +88,7 @@ impl BorderKind {
         }
     }
 
+    /// Returns the top-right corner glyph for this border kind.
     pub(crate) const fn top_right(self) -> BoxDraw {
         match self {
             BorderKind::Single => BoxDraw::TopRight,
@@ -90,6 +97,7 @@ impl BorderKind {
         }
     }
 
+    /// Returns the bottom-left corner glyph for this border kind.
     pub(crate) const fn bottom_left(self) -> BoxDraw {
         match self {
             BorderKind::Single => BoxDraw::BottomLeft,
@@ -98,6 +106,7 @@ impl BorderKind {
         }
     }
 
+    /// Returns the bottom-right corner glyph for this border kind.
     pub(crate) const fn bottom_right(self) -> BoxDraw {
         match self {
             BorderKind::Single => BoxDraw::BottomRight,
@@ -106,6 +115,7 @@ impl BorderKind {
         }
     }
 
+    /// Returns the crossing glyph for this border kind.
     pub(crate) const fn cross(self) -> BoxDraw {
         match self {
             BorderKind::Double => BoxDraw::DoubleCross,
@@ -113,8 +123,8 @@ impl BorderKind {
         }
     }
 
-    /// Contains all glyphs for border drawing in the order: Horizontal, Vertical, TopLeft,
-    /// TopRight, BottomLeft, BottomRight
+    /// Returns all border glyphs in the order:
+    /// horizontal, vertical, top-left, top-right, bottom-left, bottom-right.
     pub(crate) const fn glyphs(self) -> (BoxDraw, BoxDraw, BoxDraw, BoxDraw, BoxDraw, BoxDraw) {
         match self {
             BorderKind::Single => (
@@ -145,220 +155,6 @@ impl BorderKind {
     }
 }
 
-/// Basic ANSI colors used for foreground and background styling.
-#[repr(u8)]
-#[derive(Default, Debug, PartialEq, Eq, Copy, Clone)]
-pub enum Color {
-    Black = 0,
-    Red,
-    Green,
-    Yellow,
-    Blue,
-    Magenta,
-    Cyan,
-    White,
-    #[default]
-    Default = 8,
-}
-
-impl Color {
-    const fn from_u8(n: u8) -> Self {
-        match n {
-            0 => Color::Black,
-            1 => Color::Red,
-            2 => Color::Green,
-            3 => Color::Yellow,
-            4 => Color::Blue,
-            5 => Color::Magenta,
-            6 => Color::Cyan,
-            7 => Color::White,
-            _ => Color::Default,
-        }
-    }
-
-    /// Converts to a numeric foreground color.
-    pub const fn fg_code(self) -> u8 {
-        match self {
-            Color::Default => 39,
-            _ => 30 + self as u8,
-        }
-    }
-
-    /// Converts to a numeric background color.
-    pub const fn bg_code(self) -> u8 {
-        match self {
-            Color::Default => 49,
-            _ => 40 + self as u8,
-        }
-    }
-}
-
-/// Packed text style state, including flags and foreground/background colors.
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Style(u16);
-
-impl Style {
-    // bits 0..5   flags
-    // bits 6..9   fg (4 bits)
-    // bits 10..13 bg (4 bits)
-    // bit 14      inverse
-
-    pub const FLAG_BOLD: u16 = 1 << 0;
-    pub const FLAG_DIM: u16 = 1 << 1;
-    pub const FLAG_ITALIC: u16 = 1 << 2;
-    pub const FLAG_UNDERLINE: u16 = 1 << 3;
-    pub const FLAG_BLINK: u16 = 1 << 4;
-    pub const FLAG_STRIKE: u16 = 1 << 5;
-    pub const FLAG_INVERSE: u16 = 1 << 14;
-
-    const FLAG_MASK: u16 = Self::FLAG_BOLD
-        | Self::FLAG_DIM
-        | Self::FLAG_ITALIC
-        | Self::FLAG_UNDERLINE
-        | Self::FLAG_BLINK
-        | Self::FLAG_STRIKE
-        | Self::FLAG_INVERSE;
-
-    const FG_SHIFT: u16 = 6;
-    const BG_SHIFT: u16 = 10;
-
-    const FG_MASK: u16 = 0xF << Self::FG_SHIFT;
-    const BG_MASK: u16 = 0xF << Self::BG_SHIFT;
-
-    /// Create a new style with no flags and colors set to default.
-    #[inline]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Sets the flags for the style.
-    #[inline]
-    pub fn with_flags(mut self, flags: u16) -> Self {
-        self.0 |= flags & Self::FLAG_MASK;
-        self
-    }
-
-    /// Sets the foreground color.
-    #[inline]
-    pub fn with_fg(mut self, color: Color) -> Self {
-        self.0 = (self.0 & !Self::FG_MASK) | ((color as u16) << Self::FG_SHIFT);
-        self
-    }
-
-    /// Sets the background color.
-    #[inline]
-    pub fn with_bg(mut self, color: Color) -> Self {
-        self.0 = (self.0 & !Self::BG_MASK) | ((color as u16) << Self::BG_SHIFT);
-        self
-    }
-
-    /// Enables bold.
-    #[inline]
-    pub fn bold(mut self) -> Self {
-        self.0 |= Self::FLAG_BOLD;
-        self
-    }
-
-    /// Style will dim text.
-    #[inline]
-    pub fn dim(mut self) -> Self {
-        self.0 |= Self::FLAG_DIM;
-        self
-    }
-
-    /// Style will be italicized.
-    #[inline]
-    pub fn italic(mut self) -> Self {
-        self.0 |= Self::FLAG_ITALIC;
-        self
-    }
-
-    /// Style will be underlined.
-    #[inline]
-    pub fn underline(mut self) -> Self {
-        self.0 |= Self::FLAG_UNDERLINE;
-        self
-    }
-
-    /// Style will blink (if supported.)
-    #[inline]
-    pub fn blink(mut self) -> Self {
-        self.0 |= Self::FLAG_BLINK;
-        self
-    }
-
-    /// Style will have a strikethrough.
-    #[inline]
-    pub fn strike(mut self) -> Self {
-        self.0 |= Self::FLAG_STRIKE;
-        self
-    }
-
-    /// Style will have a strikethrough.
-    #[inline]
-    pub fn inverse(mut self) -> Self {
-        self.0 |= Self::FLAG_INVERSE;
-        self
-    }
-
-    /// Sets the flags, fg color, and bg color of a style.
-    #[inline]
-    pub fn set(&mut self, flags: u16, fg: Color, bg: Color) {
-        self.0 = (flags & Self::FLAG_MASK)
-            | ((fg as u16) << Self::FG_SHIFT)
-            | ((bg as u16) << Self::BG_SHIFT);
-    }
-
-    /// Sets specific flags.
-    #[inline]
-    pub fn add_flags(&mut self, flags: u16) {
-        self.0 |= flags & Self::FLAG_MASK;
-    }
-
-    /// Sets the foreground color.
-    #[inline]
-    fn set_fg(&mut self, color: Color) {
-        self.0 = (self.0 & !Self::FG_MASK) | ((color as u16) << Self::FG_SHIFT);
-    }
-
-    /// Sets the background color.
-    #[inline]
-    fn set_bg(&mut self, color: Color) {
-        self.0 = (self.0 & !Self::BG_MASK) | ((color as u16) << Self::BG_SHIFT);
-    }
-
-    /// Removes all style flags, excludes colors.
-    #[inline]
-    pub fn clear_flags(&mut self) {
-        self.0 &= !Self::FLAG_MASK;
-    }
-
-    /// Obtains the set flags.
-    #[inline]
-    pub fn flags(&self) -> u16 {
-        self.0 & Self::FLAG_MASK
-    }
-
-    /// Obtains the foreground color that is currently set.
-    #[inline]
-    pub fn fg(&self) -> Color {
-        Color::from_u8(((self.0 >> Self::FG_SHIFT) & 0xF) as u8)
-    }
-
-    /// Obtains the background color that is currently set.
-    #[inline]
-    pub fn bg(&self) -> Color {
-        Color::from_u8(((self.0 >> Self::BG_SHIFT) & 0xF) as u8)
-    }
-}
-
-impl Default for Style {
-    fn default() -> Self {
-        Self(0).with_fg(Color::Default).with_bg(Color::Default)
-    }
-}
-
 /// Represents a printable "character" to the screen.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Rune {
@@ -367,15 +163,16 @@ pub struct Rune {
 }
 
 impl From<char> for Rune {
+    /// Encodes a Unicode scalar value into the rune buffer.
     fn from(value: char) -> Self {
         let mut bytes = [0u8; 4];
         let len = value.encode_utf8(&mut bytes).len() as u8;
-
         Self { bytes, len }
     }
 }
 
 impl Default for Rune {
+    /// Creates a default blank rune.
     fn default() -> Self {
         Self {
             bytes: [b' '; 4],
@@ -385,6 +182,7 @@ impl Default for Rune {
 }
 
 impl From<BoxDraw> for Rune {
+    /// Converts a box-drawing marker into a rune.
     fn from(value: BoxDraw) -> Self {
         char::from(value).into()
     }
@@ -393,25 +191,26 @@ impl From<BoxDraw> for Rune {
 /// A single screen cell that can be rendered with a rune and style.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Glyph {
-    /// Attributes that are applied such as bold, blink, underline, color, etc.
+    /// Attributes that are applied such as bold, blink, underline, and color.
     pub style: Style,
+
     /// Rendered data.
     pub rune: Rune,
 }
 
 impl Glyph {
-    /// Constructs using default values.
+    /// Constructs a default glyph.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Applies a style to the rendered data.
+    /// Applies a style to the rendered glyph.
     pub fn with_style(mut self, style: Style) -> Self {
         self.style = style;
         self
     }
 
-    /// Replaces the default value with the user provided.
+    /// Replaces the glyph's rune.
     pub fn with_rune(mut self, rune: impl Into<Rune>) -> Self {
         self.rune = rune.into();
         self
@@ -419,6 +218,7 @@ impl Glyph {
 }
 
 impl From<char> for Glyph {
+    /// Creates a glyph from a character.
     fn from(c: char) -> Self {
         Self {
             rune: c.into(),
@@ -428,6 +228,7 @@ impl From<char> for Glyph {
 }
 
 impl From<BoxDraw> for Glyph {
+    /// Creates a glyph from a box-drawing marker.
     fn from(value: BoxDraw) -> Self {
         Self {
             rune: value.into(),

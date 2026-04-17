@@ -6,7 +6,7 @@ use crate::{
     Pane, PaneBuilder, PaneId,
     geom::{Point, Rect, Size},
     render::{Compositor, Renderer},
-    style::Glyph,
+    style::{ColorAtlas, Glyph},
     surface::{
         PaneAction,
         backend::{DamagedRow, Layer},
@@ -540,14 +540,16 @@ impl Canvas {
         true
     }
 
-    /// Composes damaged regions, renders the differences, and writes the output.
+    /// Renders the canvas through the compositor and renderer.
     pub fn render<W: std::io::Write>(
         &mut self,
         compositor: &mut Compositor,
         renderer: &mut Renderer,
+        styles: &ColorAtlas,
         out: &mut W,
     ) -> std::io::Result<()> {
         self.collect_damage();
+
         if self.forced_redraw {
             self.mark_damaged(self.rect());
             self.forced_redraw = false;
@@ -558,13 +560,13 @@ impl Canvas {
             compositor.flatten(self.clear_glyph, self.panes.as_slice(), &self.damaged);
         }
 
-        renderer.render(compositor, &self.damaged, self.cursor, out)?;
+        renderer.render(compositor, &self.damaged, self.cursor, styles, out)?;
 
         for pane in self.panes.iter_mut() {
             pane.clear_damaged();
         }
-
         self.clear_damaged();
+
         Ok(())
     }
 
